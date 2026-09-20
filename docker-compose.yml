@@ -129,11 +129,26 @@ services:
     restart: unless-stopped
 
   # Anonymous Cloudflare Quick Tunnel — gives a temporary public HTTPS URL
-  # (https://<random>.trycloudflare.com) pointing at nginx. No account/domain.
-  # The assigned URL is printed to this service's logs and changes on restart.
+  # (https://<random>.trycloudflare.com) pointing at nginx. No account/domain,
+  # but rate-limited and the URL changes on every restart. Kept as a fallback;
+  # `ngrok` below is the primary tunnel (free static/stable domain).
   cloudflared:
     image: cloudflare/cloudflared:latest
     command: tunnel --no-autoupdate --url http://nginx:80
+    depends_on:
+      - nginx
+    networks: [appnet]
+    restart: unless-stopped
+    profiles: ["cloudflared"]   # only starts if explicitly requested (see README)
+
+  # ngrok — free static domain (NGROK_STATIC_DOMAIN in .env.docker), fixed
+  # across restarts, no rate-limit surprises like the anonymous quick tunnel.
+  # NGROK_AUTHTOKEN authenticates automatically (the image reads that env var).
+  ngrok:
+    image: ngrok/ngrok:latest
+    entrypoint: []              # the image's own ENTRYPOINT is `ngrok`; clear it
+    env_file: .env.docker       # so `command` below (sh -c "...") runs as-is
+    command: ["sh", "-c", "ngrok http --log=stdout --url=$$NGROK_STATIC_DOMAIN http://nginx:80"]
     depends_on:
       - nginx
     networks: [appnet]

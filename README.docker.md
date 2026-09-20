@@ -236,45 +236,71 @@ and uncomment the block. Real certs/domain are optional for this project.
 
 ---
 
-## Phase 5 — Put the API online (Cloudflare Quick Tunnel)
+## Phase 5 — Put the API online (public tunnel)
 
-A `cloudflared` service runs an **anonymous** Cloudflare Quick Tunnel that gives a
-temporary public **`https://<random>.trycloudflare.com`** URL pointing at nginx —
-**no Cloudflare account, no domain, no port forwarding**. This lets the Flutter
-app reach the API over HTTPS from any network (mobile data, another Wi-Fi, etc.).
+Two tunnel options are wired up. **`ngrok` is the default/primary one** — it
+starts with a plain `docker compose up -d`. `cloudflared` is kept as a fallback
+behind a Compose **profile**, so it never starts unless you explicitly ask for
+it (see why below).
 
-> This is a **testing/demo** tunnel, not permanent hosting.
+### ngrok (default — free static domain, no rate-limit surprises)
 
-### Bring it up
+Unlike the Cloudflare Quick Tunnel below, ngrok's free plan gives every account
+**one permanent static domain** (e.g. `usage-angles-emporium.ngrok-free.dev`)
+that never changes across restarts and isn't subject to the same anonymous
+rate limiting.
 
-```bash
-docker compose up -d            # starts the Phase 4 stack + cloudflared
+**One-time account setup:**
+1. Sign up free at [dashboard.ngrok.com/signup](https://dashboard.ngrok.com/signup).
+2. Grab your authtoken from [dashboard.ngrok.com/get-started/your-authtoken](https://dashboard.ngrok.com/get-started/your-authtoken).
+3. Your static domain is auto-assigned on signup — find it under **Universal
+   Gateway → Domains** in the dashboard (no need to type a custom name).
+
+**In `.env.docker`:**
+```
+NGROK_AUTHTOKEN=<your authtoken>
+NGROK_STATIC_DOMAIN=<your-domain>.ngrok-free.dev
 ```
 
-### Get the current tunnel URL
+**Bring it up:**
+```bash
+docker compose up -d            # starts the whole stack, ngrok included
+```
 
-The URL is printed to the cloudflared logs:
+Your public URL is always `https://<NGROK_STATIC_DOMAIN>` — no need to fetch
+it from logs each time, since it never changes. To confirm it's actually
+connected: `docker compose logs ngrok | grep "started tunnel"`.
+
+### Alternative: Cloudflare Quick Tunnel (anonymous, rate-limited, opt-in)
+
+A `cloudflared` service can instead give a **temporary** public
+**`https://<random>.trycloudflare.com`** URL — no account, no domain, but the
+URL changes on every restart and Cloudflare rate-limits anonymous quick
+tunnels per IP if restarted too often. It's gated behind a profile so routine
+`docker compose up -d` never touches it:
 
 ```bash
-# bash / Git Bash (from repo root)
+docker compose --profile cloudflared up -d cloudflared
 docker compose logs cloudflared | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1
 ```
 
 ```powershell
-# PowerShell
-docker compose logs cloudflared | Select-String "trycloudflare.com"
+# PowerShell equivalent of the grep above
+docker compose logs cloudflared | Select-String -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | ForEach-Object { $_.Matches.Value } | Select-Object -Last 1
 ```
 
-Open that URL in a browser → the admin portal login loads over HTTPS. Log in as
-`admin` / `admin12345`.
+If you hit `429`/error `1015` in its logs, that's Cloudflare's rate limit —
+stop it (`docker compose stop cloudflared`) and wait 15–30 minutes before
+starting it again; don't retry in a loop, each failed attempt still counts
+against the limit.
 
-### Point the Flutter app at the tunnel
+### Point the Flutter app at whichever tunnel is up
 
 The app reads `API_BASE_URL` (`--dart-define`) and appends `/api/v1` itself, so
 pass the bare tunnel URL (no path, no trailing slash):
 
 ```bash
-flutter run --dart-define=API_BASE_URL=https://<random>.trycloudflare.com
+flutter run --dart-define=API_BASE_URL=https://<your-domain>.ngrok-free.dev
 ```
 
 No `10.0.2.2` or LAN IP needed — the HTTPS tunnel works from the emulator, a
@@ -283,33 +309,27 @@ cleartext-traffic issue.
 
 ### Django settings that make this work
 
-- `ALLOWED_HOSTS` includes **`.trycloudflare.com`** (leading dot ⇒ any subdomain),
-  so the random host never triggers `DisallowedHost`.
-- `CSRF_TRUSTED_ORIGINS=https://*.trycloudflare.com` lets the CSRF-protected
-  **admin portal** POST forms work over the tunnel.
-- `SECURE_PROXY_SSL_HEADER` + `USE_X_FORWARDED_HOST` — Cloudflare terminates TLS
-  and cloudflared forwards to nginx over http, so Django trusts
-  `X-Forwarded-Proto: https` (nginx already forwards it from Phase 4).
+- `ALLOWED_HOSTS` includes **`.trycloudflare.com`**, **`.ngrok-free.app`**, and
+  **`.ngrok-free.dev`** (leading dot ⇒ any subdomain), so neither tunnel's host
+  ever triggers `DisallowedHost`.
+- `CSRF_TRUSTED_ORIGINS` includes the `https://*.` form of all three, so the
+  CSRF-protected **admin portal** POST forms work over either tunnel.
+- `SECURE_PROXY_SSL_HEADER` + `USE_X_FORWARDED_HOST` — both tunnels terminate
+  TLS and forward to nginx over http, so Django trusts `X-Forwarded-Proto:
+  https` (nginx already forwards it).
 - The DRF JSON API (mobile app) is token-based and **not** subject to CSRF, so it
   works regardless of the CSRF settings.
 
 ### ⚠️ Caveats (read these)
 
-- **The URL changes every time `cloudflared` restarts.** Keep the stack running
-  during testing; on restart, fetch the new URL and re-run Flutter with it.
-- Quick tunnels are **rate-limited and temporary** — fine for testing/demo, not
-  real deployment. For a stable URL, register a domain on Cloudflare and switch
-  to a **named tunnel** (a later phase).
-- The backend is reachable from the internet while the tunnel is up. **Change the
-  seeded default admin password** before exposing it, and **stop the tunnel when
-  done**:
-
-  ```bash
-  docker compose stop cloudflared        # local stack keeps running, just no public URL
-  ```
-
-  Nothing depends on `cloudflared`, so stopping it never affects the rest of the
-  stack.
+- The backend is reachable from the internet while a tunnel is up. **Change the
+  seeded default admin password** before exposing it, and stop the tunnel when
+  done (`docker compose stop ngrok`, or `docker compose stop cloudflared`).
+- With `cloudflared`: don't restart it repeatedly (each restart requests a new
+  random URL and burns the anonymous rate limit) — see above.
+- With `ngrok`: the free plan's one static domain is tied to your account, not
+  to this specific deployment — if you run the stack on a second machine with
+  the same `NGROK_AUTHTOKEN`, only one can hold an active session at a time.
 
 ### Definition of Done — Phase 5 (verified)
 
