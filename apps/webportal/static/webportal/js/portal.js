@@ -1,4 +1,4 @@
-/* CKC Attendance portal — theming, sidebar drawer, DataTables, HTMX glue. */
+/* CDK Attendance portal — theming, sidebar drawer, DataTables, HTMX glue. */
 (function () {
   'use strict';
 
