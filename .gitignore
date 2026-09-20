@@ -1,0 +1,27 @@
+# Virtualenv
+env/
+
+# Environment secrets
+.env
+.env.docker
+
+# Service-account keys (Firebase, etc.) — NEVER commit these
+secrets/
+*.serviceaccount.json
+firebase-service-account.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Django
+*.log
+db.sqlite3
+media/
+staticfiles/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

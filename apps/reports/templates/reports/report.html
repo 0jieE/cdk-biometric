@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    @page { size: A4 landscape; margin: 1.5cm; }
+    body { font-family: Helvetica, Arial, sans-serif; color: #222; font-size: 10px; }
+    .header { text-align: center; margin-bottom: 12px; border-bottom: 2px solid #6D28D9; padding-bottom: 8px; }
+    .header img { height: 46px; margin-bottom: 4px; }
+    .institution { font-size: 16px; font-weight: bold; color: #6D28D9; }
+    .title { font-size: 12px; margin-top: 4px; }
+    .meta { font-size: 9px; color: #666; margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th { background-color: #6D28D9; color: #fff; padding: 5px; text-align: left; font-size: 9px; }
+    td { padding: 4px 5px; border-bottom: 1px solid #ddd; font-size: 9px; }
+    tr:nth-child(even) td { background-color: #f6f8fa; }
+    .empty { text-align: center; color: #999; padding: 20px; }
+    .footer { position: fixed; bottom: 0; width: 100%; text-align: center; font-size: 8px; color: #999; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    {% if logo_path %}<img src="{{ logo_path }}" alt="logo">{% endif %}
+    <div class="institution">{{ institution }}</div>
+    <div class="title">{{ title }}</div>
+    <div class="meta">Generated: {{ generated_at }}</div>
+  </div>
+
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>{% for col in columns %}<th>{{ col }}</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No records for the selected criteria.</div>
+  {% endif %}
+
+  <div class="footer">Biometric Attendance Monitoring System — {{ institution }}</div>
+</body>
+</html>

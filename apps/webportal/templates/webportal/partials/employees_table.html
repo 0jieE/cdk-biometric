@@ -1,0 +1,25 @@
+<table id="dt-employees" class="table js-dt" data-dt-order='[[0,"asc"]]' style="width:100%">
+  <thead><tr>
+    <th>Employee No</th><th>Name</th><th>Department</th><th>Position</th>
+    <th>Type</th><th>Biometric ID</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+  <tbody>
+  {% for e in rows %}
+    <tr>
+      <td>{{ e.employee_no }}</td>
+      <td>{{ e.full_name }}</td>
+      <td>{{ e.department.name }}</td>
+      <td>{{ e.position|default:"—" }}</td>
+      <td><span class="badge-status {% if e.is_fulltime %}s-ot{% else %}s-neutral{% endif %}">{{ e.employment_type }}</span></td>
+      <td>{{ e.biometric_id }}</td>
+      <td>{% if e.is_active %}<span class="badge-status s-present">Active</span>{% else %}<span class="badge-status s-neutral">Inactive</span>{% endif %}</td>
+      <td class="text-end text-nowrap">
+        <button class="btn btn-outline-brand btn-sm" hx-get="{% url 'webportal:employee_edit' e.id %}" hx-target="#modalContent"><i class="bi bi-pencil"></i></button>
+        {% if e.is_active %}
+        <button class="btn btn-outline-danger btn-sm" hx-post="{% url 'webportal:employee_deactivate' e.id %}"
+                hx-confirm="Deactivate {{ e.full_name }}?"><i class="bi bi-person-dash"></i></button>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>

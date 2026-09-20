@@ -1,0 +1,11 @@
+{% extends 'webportal/base.html' %}
+{% block title %}{{ employee.full_name }}{% endblock %}
+{% block heading %}Employee Profile{% endblock %}
+{% block content %}
+<div id="profile"
+     hx-get="{% url 'webportal:employee_detail' employee.id %}"
+     hx-trigger="refreshProfile from:body"
+     hx-swap="innerHTML">
+  {% include 'webportal/partials/employee_profile_body.html' %}
+</div>
+{% endblock %}

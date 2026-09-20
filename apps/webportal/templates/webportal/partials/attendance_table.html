@@ -1,0 +1,36 @@
+{% load webportal_extras %}
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle mb-0">
+    <thead class="table-light"><tr>
+      <th>Date</th><th>Employee</th><th>Type</th>
+      <th>AM In</th><th>AM Out</th><th>PM In</th><th>PM Out</th>
+      <th>Day Status</th><th>Late (min)</th><th>OT (min)</th></tr></thead>
+    <tbody>
+    {% for r in page_obj %}
+      <tr>
+        <td>{{ r.date|date:"M d, Y" }}</td>
+        <td>{{ r.employee.full_name }} <span class="text-muted small">({{ r.employee.employee_no }})</span></td>
+        <td><span class="badge {% if r.employee_type == 'FULL_TIME' %}bg-primary{% else %}bg-secondary{% endif %}">
+          {{ r.employee_type }}</span></td>
+        {% if r.employee_type == 'FULL_TIME' %}
+          <td>{{ r.am.in|time:"H:i"|default:"—" }}</td>
+          <td>{{ r.am.out|time:"H:i"|default:"—" }}</td>
+          <td>{{ r.pm.in|time:"H:i"|default:"—" }}</td>
+          <td>{{ r.pm.out|time:"H:i"|default:"—" }}</td>
+          <td>{% day_status_badge r.day_status %}</td>
+          <td>{{ r.am.minutes_late|add:r.pm.minutes_late }}</td>
+          <td>{% if r.overtime_minutes %}<span class="badge bg-info text-dark">{{ r.overtime_minutes }}</span>{% else %}0{% endif %}</td>
+        {% else %}
+          <td colspan="2">{{ r.in|time:"H:i"|default:"—" }} → {{ r.out|time:"H:i"|default:"—" }}</td>
+          <td colspan="2">{% if r.incomplete %}<span class="badge bg-warning text-dark">incomplete: {{ r.missing }} missing</span>{% endif %}</td>
+          <td>{% day_status_badge r.day_status %}</td>
+          <td>—</td><td>—</td>
+        {% endif %}
+      </tr>
+    {% empty %}
+      <tr><td colspan="10" class="text-center text-muted py-3">No records for these filters.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include 'webportal/partials/pagination.html' %}

@@ -1,0 +1,143 @@
+<a href="{% url 'webportal:employees' %}" class="btn btn-soft btn-sm mb-3"><i class="bi bi-arrow-left"></i> Back to employees</a>
+
+<div class="row g-3">
+  <!-- Identity card -->
+  <div class="col-lg-4">
+    <div class="card h-100"><div class="card-pad text-center">
+      <div class="profile-avatar mb-3">
+        {% include 'webportal/partials/avatar.html' with emp=employee size='xl' %}
+      </div>
+      <h2 class="h5 mb-1">{{ employee.full_name }}</h2>
+      <div class="text-muted mb-2">{{ employee.employee_no }}</div>
+      <div class="d-flex justify-content-center gap-2 mb-3 flex-wrap">
+        <span class="badge-status {% if employee.is_fulltime %}s-ot{% else %}s-half{% endif %}">
+          {% if employee.is_fulltime %}Full-time{% else %}Part-time{% endif %}</span>
+        {% if employee.is_active %}<span class="badge-status s-present">Active</span>
+        {% else %}<span class="badge-status s-absent">Inactive</span>{% endif %}
+      </div>
+
+      <div class="profile-facts text-start">
+        <div><span>Department</span><b>{{ employee.department.name }}</b></div>
+        <div><span>Position</span><b>{{ employee.position|default:"—" }}</b></div>
+        <div><span>Date hired</span><b>{{ employee.date_hired|date:"M d, Y"|default:"—" }}</b></div>
+        <div><span>Biometric ID</span><b>{{ employee.biometric_id }}</b></div>
+        <div><span>Login</span>
+          <b>{% if account %}
+              {{ account.username }}
+              {% if account.is_active %}<span class="badge-status s-in ms-1">Enabled</span>
+              {% else %}<span class="badge-status s-neutral ms-1">Disabled</span>{% endif %}
+            {% else %}<span class="text-danger">No account</span>{% endif %}</b></div>
+      </div>
+
+      <div class="d-grid gap-2 mt-3">
+        <button class="btn btn-brand btn-sm" hx-get="{% url 'webportal:employee_edit' employee.id %}" hx-target="#modalContent">
+          <i class="bi bi-pencil-square"></i> Edit information</button>
+        <button class="btn btn-outline-brand btn-sm" hx-get="{% url 'webportal:employee_account' employee.id %}" hx-target="#modalContent">
+          <i class="bi bi-shield-lock"></i> Manage account</button>
+      </div>
+    </div></div>
+  </div>
+
+  <!-- Analytics -->
+  <div class="col-lg-8">
+    <div class="card mb-3"><div class="card-head">
+      <span><i class="bi bi-graph-up-arrow me-1"></i> Performance <span class="text-muted fw-normal small">· last {{ window_days }} days</span></span>
+    </div>
+    <div class="card-pad">
+      <div class="mini-grid">
+        <div class="mini-stat">
+          <div class="mini-num">{{ attendance_rate }}%</div>
+          <div class="mini-label">Attendance rate</div>
+          <div class="mini-bar"><span style="width:{{ attendance_rate }}%"></span></div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-num">{{ punctuality_rate }}%</div>
+          <div class="mini-label">Punctuality</div>
+          <div class="mini-bar"><span class="ok" style="width:{{ punctuality_rate }}%"></span></div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-num text-ok">{{ present_days }}</div>
+          <div class="mini-label">Present days</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-num text-late">{{ late_days }}</div>
+          <div class="mini-label">Late days</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-num text-absent">{{ absent_days }}</div>
+          <div class="mini-label">Absent days</div>
+        </div>
+        {% if employee.is_fulltime %}
+        <div class="mini-stat">
+          <div class="mini-num text-ot">{{ ot_hours }}<span class="fs-6"> h</span></div>
+          <div class="mini-label">Overtime</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-num text-absent">{{ lost_minutes }}<span class="fs-6"> m</span></div>
+          <div class="mini-label">Lost time ({{ late_minutes }} late + {{ undertime_minutes }} undertime)</div>
+        </div>
+        {% else %}
+        <div class="mini-stat">
+          <div class="mini-num">{{ half_days }}</div>
+          <div class="mini-label">Half / incomplete</div>
+        </div>
+        {% endif %}
+      </div>
+    </div></div>
+
+    <div class="card mb-3"><div class="card-head">
+      <span><i class="bi bi-bar-chart me-1"></i> Attendance trend <span class="text-muted fw-normal small">· 6 months</span></span>
+    </div>
+    <div class="card-pad">
+      <div class="trend">
+        {% for t in trend %}
+        <div class="trend-col" title="{{ t.label }}: {{ t.rate }}% attendance">
+          <div class="trend-bar-wrap">
+            <div class="trend-bar {% if t.rate >= 90 %}b-ok{% elif t.rate >= 75 %}b-late{% else %}b-absent{% endif %}"
+                 style="height:{{ t.rate }}%"></div>
+          </div>
+          <div class="trend-pct">{{ t.rate }}%</div>
+          <div class="trend-month">{{ t.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div></div>
+
+    <div class="card"><div class="card-head">
+      <span><i class="bi bi-clock-history me-1"></i> Recent activity</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table mb-0" style="width:100%">
+        <thead><tr>
+          <th>Date</th>
+          {% if employee.is_fulltime %}<th>AM In</th><th>AM Out</th><th>PM In</th><th>PM Out</th>{% else %}<th>In</th><th>Out</th>{% endif %}
+          <th>Status</th>
+        </tr></thead>
+        <tbody>
+          {% for r in recent %}
+          <tr>
+            <td class="text-nowrap">{{ r.date|date:"D, M d" }}</td>
+            {% if employee.is_fulltime %}
+              <td>{{ r.am.in|time:"H:i"|default:"—" }}</td>
+              <td>{{ r.am.out|time:"H:i"|default:"—" }}</td>
+              <td>{{ r.pm.in|time:"H:i"|default:"—" }}</td>
+              <td>{{ r.pm.out|time:"H:i"|default:"—" }}</td>
+            {% else %}
+              <td>{{ r.in|time:"H:i"|default:"—" }}</td>
+              <td>{{ r.out|time:"H:i"|default:"—" }}</td>
+            {% endif %}
+            <td>
+              {% if r.day_status == 'PRESENT' %}<span class="badge-status s-present">Present</span>
+              {% elif r.day_status == 'LATE' %}<span class="badge-status s-late">Late</span>
+              {% elif r.day_status == 'HALF_DAY' %}<span class="badge-status s-half">Half day</span>
+              {% else %}<span class="badge-status s-absent">Absent</span>{% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="9" class="text-center text-muted py-4">No recent attendance records.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </div>
+</div>

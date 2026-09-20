@@ -1,0 +1,19 @@
+<table id="dt-holidays" class="table js-dt" data-dt-order='[[0,"desc"]]' style="width:100%">
+  <thead><tr>
+    <th>Date</th><th>Name</th><th>Type</th><th>Color</th><th>Recurring</th><th class="text-end">Actions</th></tr></thead>
+  <tbody>
+  {% for h in rows %}
+    <tr>
+      <td data-order="{{ h.date|date:'Y-m-d' }}">{{ h.date|date:"M d, Y" }}</td>
+      <td>{{ h.name }}</td>
+      <td><span class="badge-status s-neutral">{{ h.get_type_display }}</span></td>
+      <td><span class="d-inline-block" style="width:16px;height:16px;border-radius:5px;background:{{ h.color }};vertical-align:middle;box-shadow:0 0 0 1px var(--line)"></span></td>
+      <td>{% if h.is_recurring %}<i class="bi bi-check-circle" style="color:var(--ok)"></i>{% else %}—{% endif %}</td>
+      <td class="text-end text-nowrap">
+        <button class="btn btn-outline-brand btn-sm" hx-get="{% url 'webportal:holiday_edit' h.id %}" hx-target="#modalContent" hx-swap="innerHTML"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-outline-danger btn-sm" hx-post="{% url 'webportal:holiday_delete' h.id %}" hx-confirm="Delete {{ h.name }}?"><i class="bi bi-trash"></i></button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>

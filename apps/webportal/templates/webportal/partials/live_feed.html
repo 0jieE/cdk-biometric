@@ -1,0 +1,50 @@
+{% load webportal_extras %}
+{% comment %}Inner content only — #feed is a stable wrapper that never gets replaced.
+data-mode drives the auto-refresh (live only), see live.html.{% endcomment %}
+<div class="k-panel" data-mode="{% if show_all %}all{% else %}live{% endif %}">
+  <div class="k-feed-head">
+    <div>
+      <div class="k-feed-title">
+        {% if show_all %}All punches today{% else %}Recent punches{% endif %}
+      </div>
+      <div class="k-feed-sub">
+        {% if show_all %}{{ total }} punch{{ total|pluralize:"es" }} recorded today
+        {% else %}Latest {{ logs|length }} of {{ total }} today · updates every 15s{% endif %}
+      </div>
+    </div>
+    <div class="k-actions">
+      {% if show_all %}
+        <button class="k-btn" hx-get="{% url 'webportal:live_feed' %}?all=1" hx-target="#feed" hx-swap="innerHTML">
+          <i class="bi bi-arrow-clockwise"></i> Refresh</button>
+        <button class="k-btn on" hx-get="{% url 'webportal:live_feed' %}" hx-target="#feed" hx-swap="innerHTML">
+          <i class="bi bi-broadcast"></i> Back to live</button>
+      {% else %}
+        <button class="k-btn" hx-get="{% url 'webportal:live_feed' %}?all=1" hx-target="#feed" hx-swap="innerHTML">
+          <i class="bi bi-list-ul"></i> Browse all today ({{ total }})</button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="k-list{% if show_all %} k-list-tall{% endif %}">
+    {% for log in logs %}
+    <div class="k-row">
+      {% include 'webportal/partials/avatar.html' with emp=log.employee size='sm' %}
+      <div class="k-who">
+        <div class="k-name">{{ log.employee.full_name }}</div>
+        <div class="k-dept">{{ log.employee.employee_no }} · {{ log.employee.department.name }}</div>
+      </div>
+      <div class="k-time-cell">
+        {# The kiosk doesn't load Bootstrap, so it uses its own chip. #}
+        <span class="k-badge {% if 'OT' in log.log_type %}ot{% elif 'OUT' in log.log_type %}out{% else %}in{% endif %}">
+          {{ log.get_log_type_display }}</span>
+        <div class="k-punch-time">{{ log.log_datetime|time:"g:i A" }}</div>
+      </div>
+    </div>
+    {% empty %}
+    <div class="k-empty">
+      <i class="bi bi-inbox"></i>
+      <div>No punches recorded today yet.</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>

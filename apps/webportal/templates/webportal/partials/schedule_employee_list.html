@@ -1,0 +1,38 @@
+<div class="sched-grid">
+  {% for e in employees %}
+  <div class="sched-card" data-search="{{ e.full_name|lower }} {{ e.employee_no|lower }}">
+    <div class="sched-card-top">
+      {% include 'webportal/partials/avatar.html' with emp=e size='sm' %}
+      <div class="sched-who">
+        <div class="sched-name">{{ e.full_name }}</div>
+        <div class="sched-no">{{ e.employee_no }}</div>
+      </div>
+      <span class="badge-status {% if e.is_fulltime %}s-ot{% else %}s-half{% endif %} ms-auto">
+        {% if e.is_fulltime %}Full-time{% else %}Part-time{% endif %}</span>
+    </div>
+
+    <div class="sched-status">
+      {% if e.schedule_override %}
+        <span class="badge-status s-in"><i class="bi bi-sliders"></i> Custom schedule</span>
+      {% else %}
+        <span class="text-muted small"><i class="bi bi-arrow-down-left"></i> Inherits global</span>
+      {% endif %}
+    </div>
+
+    <div class="sched-actions">
+      <button type="button" class="btn btn-outline-brand btn-sm"
+              hx-get="{% url 'webportal:employee_schedule' e.id %}" hx-target="#modalContent" hx-swap="innerHTML">
+        <i class="bi bi-pencil-square"></i> Override</button>
+      {% if e.schedule_override %}
+      <button type="button" class="btn btn-outline-danger btn-sm"
+              hx-post="{% url 'webportal:employee_schedule_clear' e.id %}"
+              hx-confirm="Clear override for {{ e.full_name }}? They will inherit the global schedule.">
+        <i class="bi bi-x-lg"></i> Clear</button>
+      {% endif %}
+    </div>
+  </div>
+  {% empty %}
+  <div class="text-muted">No active employees.</div>
+  {% endfor %}
+</div>
+<div id="sched-empty" class="text-center text-muted py-4" style="display:none">No employees match your search.</div>

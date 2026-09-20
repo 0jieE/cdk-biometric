@@ -1,0 +1,39 @@
+<div class="text-muted small mb-2">{{ rows|length }} department{{ rows|length|pluralize }}</div>
+
+<div class="dept-grid">
+  {% for d in rows %}
+  <a class="dept-card" href="{% url 'webportal:department_detail' d.id %}"
+     data-search="{{ d.name|lower }} {{ d.code|lower }}">
+    <div class="dept-banner"
+         {% if d.banner %}style="background-image:url('{{ d.banner.url }}')"{% else %}style="background:var(--brand-grad)"{% endif %}>
+      {% if not d.is_active %}<span class="dept-flag badge-status s-neutral">Inactive</span>{% endif %}
+    </div>
+    <div class="dept-logo">
+      {% if d.logo %}<img src="{{ d.logo.url }}" alt="{{ d.name }}">
+      {% else %}<span class="dept-wm" style="--wm:{{ d.avatar_color }}">{{ d.initials }}</span>{% endif %}
+    </div>
+    <div class="dept-card-body">
+      <div class="dept-name">{{ d.name }}</div>
+      <div class="dept-code">{{ d.code }}</div>
+      <div class="dept-people">
+        {% if d.member_preview %}
+          <span class="avatar-stack">
+            {% for e in d.member_preview|slice:":5" %}
+              {% include 'webportal/partials/avatar.html' with emp=e size='xs' %}
+            {% endfor %}
+            {% if d.emp_count > 5 %}<span class="avatar avatar-xs stack-more">+{{ d.emp_count|add:"-5" }}</span>{% endif %}
+          </span>
+          <span class="dept-count-text">{{ d.emp_count }} employee{{ d.emp_count|pluralize }}</span>
+        {% else %}
+          <span class="dept-count-text text-muted">No employees yet</span>
+        {% endif %}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+<div id="dept-empty" class="text-center text-muted py-5" style="display:none">
+  <i class="bi bi-search" style="font-size:28px"></i>
+  <div class="mt-2">No departments match your search.</div>
+</div>

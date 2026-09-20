@@ -1,0 +1,23 @@
+<div class="modal-header">
+  <h5 class="modal-title">Authorize Overtime</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form hx-post="{% url 'webportal:overtime' %}" hx-target="#modalContent">
+  <div class="modal-body">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-danger py-2">{{ form.non_field_errors }}</div>{% endif %}
+    {% for field in form %}
+      <div class="mb-2">
+        <label class="form-label small">{{ field.label }}</label>
+        {{ field }}
+        {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+      </div>
+    {% endfor %}
+    <p class="text-muted small mb-0">OT counts from <strong>OT Start</strong>, computed from the
+      employee's OT-in / OT-out punches. Full-time employees only.</p>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    <button type="submit" class="btn btn-primary">Authorize</button>
+  </div>
+</form>

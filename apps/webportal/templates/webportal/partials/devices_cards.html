@@ -1,0 +1,35 @@
+<div class="text-muted small mb-2">{{ devices|length }} device{{ devices|length|pluralize }}</div>
+
+<div class="dev-grid">
+  {% for d in devices %}
+  <div class="dev-card">
+    <div class="dev-card-top">
+      <div class="dev-avatar">
+        {% if d.photo %}<img src="{{ d.photo.url }}" alt="{{ d.name }}">
+        {% else %}<span class="dev-wm" style="--wm:{{ d.avatar_color }}"><i class="bi bi-hdd-network"></i></span>{% endif %}
+      </div>
+      <div class="dev-headline">
+        <div class="dev-name">{{ d.name }}</div>
+        {% if d.is_active %}<span class="badge-status s-present">Active</span>
+        {% else %}<span class="badge-status s-neutral">Inactive</span>{% endif %}
+      </div>
+    </div>
+
+    <div class="dev-facts">
+      <div><span><i class="bi bi-hdd-network"></i> Address</span><b>{{ d.ip_address }}:{{ d.port }}</b></div>
+      <div><span><i class="bi bi-geo-alt"></i> Location</span><b>{{ d.location|default:"—" }}</b></div>
+      <div><span><i class="bi bi-upc-scan"></i> Serial</span><b>{{ d.serial_no|default:"—" }}</b></div>
+      <div><span><i class="bi bi-arrow-repeat"></i> Last synced</span>
+        <b>{% if d.last_synced_at %}{{ d.last_synced_at|date:"M d, H:i" }}{% else %}Never{% endif %}</b></div>
+    </div>
+
+    <div class="dev-actions">
+      <button class="btn btn-outline-brand btn-sm" hx-get="{% url 'webportal:device_edit' d.id %}" hx-target="#modalContent" hx-swap="innerHTML"><i class="bi bi-pencil"></i> Edit</button>
+      <button class="btn btn-outline-success btn-sm" hx-post="{% url 'webportal:device_sync' d.id %}" hx-target="#deviceActionResult"><i class="bi bi-arrow-repeat"></i> Sync</button>
+      <button class="btn btn-outline-info btn-sm" hx-post="{% url 'webportal:device_test' d.id %}" hx-target="#deviceActionResult"><i class="bi bi-plug"></i> Test</button>
+    </div>
+  </div>
+  {% empty %}
+  <div class="text-muted">No devices registered yet.</div>
+  {% endfor %}
+</div>

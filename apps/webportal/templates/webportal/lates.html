@@ -1,0 +1,29 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Late &amp; Undertime{% endblock %}
+{% block heading %}Late &amp; Undertime{% endblock %}
+{% block content %}
+<div class="card mb-3"><div class="card-pad">
+  <form id="filters" class="row g-2 align-items-end" hx-get="{% url 'webportal:lates' %}" hx-target="#list" hx-trigger="submit, change">
+    <div class="col-6 col-md-3"><label class="form-label">Start</label>
+      <input type="date" name="start" value="{{ filters.start|date:'Y-m-d' }}" class="form-control"></div>
+    <div class="col-6 col-md-3"><label class="form-label">End</label>
+      <input type="date" name="end" value="{{ filters.end|date:'Y-m-d' }}" class="form-control"></div>
+    <div class="col-8 col-md-4"><label class="form-label">Department</label>
+      <select name="department" class="form-select"><option value="">All departments</option>
+        {% for d in departments %}<option value="{{ d.id }}" {% if filters.department == d.id|stringformat:'s' %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+      </select></div>
+    <div class="col-4 col-md-2 d-flex gap-1 justify-content-end">
+      <a class="btn btn-outline-danger btn-sm" target="_blank" title="Institution PDF report"
+         href="{% url 'webportal:export' %}?report_type=TARDINESS&fmt=PDF&start={{ filters.start|date:'Y-m-d' }}&end={{ filters.end|date:'Y-m-d' }}&department={{ filters.department|default:'' }}"><i class="bi bi-file-pdf"></i></a>
+      <a class="btn btn-outline-success btn-sm" target="_blank" title="Institution Excel report"
+         href="{% url 'webportal:export' %}?report_type=TARDINESS&fmt=XLSX&start={{ filters.start|date:'Y-m-d' }}&end={{ filters.end|date:'Y-m-d' }}&department={{ filters.department|default:'' }}"><i class="bi bi-file-excel"></i></a>
+    </div>
+  </form>
+</div></div>
+<div class="card"><div class="card-pad">
+  <div id="list" hx-get="{% url 'webportal:lates' %}" hx-target="#list"
+       hx-trigger="load, refreshList from:body" hx-include="#filters">
+    <div class="text-muted">Loading…</div>
+  </div>
+</div></div>
+{% endblock %}

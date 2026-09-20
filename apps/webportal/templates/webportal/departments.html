@@ -1,0 +1,40 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Departments{% endblock %}
+{% block heading %}Departments{% endblock %}
+{% block content %}
+<div class="card mb-3"><div class="card-pad">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <div class="flex-grow-1" style="min-width:200px">
+      <input id="dept-search" class="form-control" placeholder="Search department name or code…" autocomplete="off">
+    </div>
+    <button class="btn btn-brand btn-sm" hx-get="{% url 'webportal:department_create' %}" hx-target="#modalContent">
+      <i class="bi bi-plus-lg"></i> New Department</button>
+  </div>
+</div></div>
+
+<div id="list" hx-get="{% url 'webportal:departments' %}" hx-target="#list" hx-trigger="load, refreshList from:body">
+  <div class="text-muted">Loading…</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  function filter() {
+    var q = ((document.getElementById('dept-search') || {}).value || '').trim().toLowerCase();
+    var shown = 0;
+    document.querySelectorAll('.dept-card').forEach(function (c) {
+      var vis = !q || c.dataset.search.indexOf(q) !== -1;
+      c.style.display = vis ? '' : 'none';
+      if (vis) shown++;
+    });
+    var empty = document.getElementById('dept-empty');
+    if (empty) empty.style.display = shown ? 'none' : '';
+  }
+  document.addEventListener('input', function (e) { if (e.target.id === 'dept-search') filter(); });
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    if (e.detail.target && e.detail.target.id === 'list') filter();
+  });
+})();
+</script>
+{% endblock %}

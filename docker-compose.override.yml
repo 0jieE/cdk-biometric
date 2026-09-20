@@ -1,0 +1,66 @@
+# Dev override — auto-merged by `docker compose up`. This is the no-rebuild loop:
+# this whole folder is bind-mounted into each container, so editing a .py file
+# takes effect immediately. Only changing requirements.txt requires `--build`.
+
+services:
+  web:
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+    volumes:
+      - .:/app                             # live code (Django autoreloads)
+      - static_volume:/app/staticfiles     # keep these as volumes, not host dirs
+      - media_volume:/app/media
+    ports:
+      # Direct Django access alongside nginx :80. Defaults to 8001 because host
+      # port 8000 is taken by another local project; override with WEB_PORT=<n>
+      # (shell or a root .env file) if 8001 is also busy. nginx on :80 is the
+      # primary entry point regardless of this.
+      - "${WEB_PORT:-8001}:8000"
+
+  celery_worker:
+    # watchmedo (from watchdog) restarts the worker on any .py change.
+    # --debug-force-polling: use stat-polling instead of inotify so file events
+    # from a Windows/Docker Desktop bind mount are actually detected.
+    command:
+      - watchmedo
+      - auto-restart
+      - --directory=/app
+      - --pattern=*.py
+      - --recursive
+      - --debug-force-polling
+      - --interval=2
+      - --
+      - celery
+      - -A
+      - core
+      - worker
+      - -l
+      - info
+      - --pool=solo
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+
+  attendance_listener:
+    volumes:
+      - .:/app
+
+  celery_beat:
+    command:
+      - watchmedo
+      - auto-restart
+      - --directory=/app
+      - --pattern=*.py
+      - --recursive
+      - --debug-force-polling
+      - --interval=2
+      - --
+      - celery
+      - -A
+      - core
+      - beat
+      - -l
+      - info
+      - --scheduler
+      - django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - .:/app

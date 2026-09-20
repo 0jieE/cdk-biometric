@@ -1,0 +1,21 @@
+<table id="dt-devices" class="table js-dt" data-dt-order='[[0,"asc"]]' style="width:100%">
+  <thead><tr>
+    <th>Name</th><th>Address</th><th>Location</th><th>Last Synced</th>
+    <th>Status</th><th class="text-end">Actions</th></tr></thead>
+  <tbody>
+  {% for d in devices %}
+    <tr>
+      <td>{{ d.name }}</td>
+      <td>{{ d.ip_address }}:{{ d.port }}</td>
+      <td>{{ d.location|default:"—" }}</td>
+      <td>{% if d.last_synced_at %}{{ d.last_synced_at|date:"M d, H:i" }}{% else %}Never{% endif %}</td>
+      <td>{% if d.is_active %}<span class="badge-status s-present">Active</span>{% else %}<span class="badge-status s-neutral">Inactive</span>{% endif %}</td>
+      <td class="text-end text-nowrap">
+        <button class="btn btn-outline-brand btn-sm" hx-get="{% url 'webportal:device_edit' d.id %}" hx-target="#modalContent"><i class="bi bi-pencil"></i></button>
+        <button class="btn btn-outline-success btn-sm" hx-post="{% url 'webportal:device_sync' d.id %}" hx-target="#deviceActionResult"><i class="bi bi-arrow-repeat"></i></button>
+        <button class="btn btn-outline-info btn-sm" hx-post="{% url 'webportal:device_test' d.id %}" hx-target="#deviceActionResult"><i class="bi bi-plug"></i></button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>

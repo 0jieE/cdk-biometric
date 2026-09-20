@@ -1,0 +1,89 @@
+<div id="cal"
+     data-lat="{{ weather_lat }}" data-lon="{{ weather_lon }}"
+     hx-get="{% url 'webportal:holidays' %}?year={{ year }}&month={{ month }}"
+     hx-trigger="refreshList from:body"
+     hx-target="#cal" hx-swap="outerHTML">
+  <div class="hol-layout">
+
+    <!-- LEFT: today, actions, overview -->
+    <aside class="hol-side">
+      <div class="hol-today">
+        <div class="hol-today-date">
+          <div class="hol-today-day">{{ today.day|stringformat:"02d" }}</div>
+          <div class="hol-today-month">{{ today|date:"F Y" }}</div>
+        </div>
+        <div class="hol-weather" id="hol-weather" aria-live="polite"></div>
+      </div>
+
+      <div class="hol-actions">
+        <button class="hol-btn hol-btn-primary" hx-get="{% url 'webportal:holiday_create' %}" hx-target="#modalContent" hx-swap="innerHTML">
+          <i class="bi bi-plus-lg"></i> Add Holiday</button>
+        <button class="hol-btn"
+                hx-post="{% url 'webportal:holiday_import' %}?year={{ year }}"
+                hx-confirm="Import Philippine national holidays for {{ year }}? Existing dates are kept.">
+          <i class="bi bi-flag"></i> Import PH {{ year }}</button>
+      </div>
+
+      <div class="hol-overview">
+        <div class="hol-overview-head">
+          <span>{{ month_name }} holidays</span>
+          <span class="hol-count">{{ month_holidays|length }}</span>
+        </div>
+        <div class="hol-list">
+          {% for h in month_holidays %}
+          <button type="button" class="hol-item"
+                  hx-get="{% url 'webportal:holiday_edit' h.id %}" hx-target="#modalContent" hx-swap="innerHTML">
+            <span class="hol-item-day" style="background:{{ h.color }}">{{ h.day|stringformat:"02d" }}</span>
+            <span class="hol-item-body">
+              <span class="hol-item-name">{{ h.name }}</span>
+              <span class="hol-item-meta">{{ h.date|date:"D · M d" }} · {{ h.type_label }}</span>
+            </span>
+          </button>
+          {% empty %}
+          <div class="hol-empty">
+            <i class="bi bi-calendar-x"></i>
+            <div>No holidays in {{ month_name }}.</div>
+            <div class="small">Click a day to add one.</div>
+          </div>
+          {% endfor %}
+        </div>
+        <a href="{% url 'webportal:holiday_list' %}" class="hol-seeall">
+          See all holidays <i class="bi bi-arrow-right"></i></a>
+      </div>
+    </aside>
+
+    <!-- RIGHT: calendar -->
+    <div class="hol-main">
+      <div class="cal-toolbar">
+        <div></div>
+        <h2 class="cal-title">{{ month_name }} {{ year }}</h2>
+        <div class="cal-nav">
+          <button class="btn btn-soft btn-sm" hx-get="{% url 'webportal:holidays' %}" hx-target="#cal" hx-swap="outerHTML">Today</button>
+          <button class="cal-arrow" title="Previous month"
+                  hx-get="{% url 'webportal:holidays' %}?year={{ prev_y }}&month={{ prev_m }}" hx-target="#cal" hx-swap="outerHTML"><i class="bi bi-chevron-left"></i></button>
+          <button class="cal-arrow" title="Next month"
+                  hx-get="{% url 'webportal:holidays' %}?year={{ next_y }}&month={{ next_m }}" hx-target="#cal" hx-swap="outerHTML"><i class="bi bi-chevron-right"></i></button>
+        </div>
+      </div>
+
+      <div class="cal-grid">
+        {% for w in weekday_labels %}<div class="cal-dow">{{ w }}</div>{% endfor %}
+        {% for week in weeks %}{% for c in week %}
+          <div class="cal-day{% if not c.in_month %} out{% endif %}{% if c.is_today %} today{% endif %}{% if c.is_weekend %} weekend{% endif %}{% if c.holidays %} has-holiday{% endif %}"
+               data-date="{{ c.date|date:'Y-m-d' }}"
+               {% if c.holidays %}style="--dc:{{ c.holidays.0.color }}"{% endif %}
+               hx-get="{% url 'webportal:holiday_create' %}?date={{ c.date|date:'Y-m-d' }}" hx-target="#modalContent" hx-swap="innerHTML"
+               title="Add holiday on {{ c.date|date:'M d, Y' }}">
+            <div class="cal-daynum">{{ c.day|stringformat:"02d" }}</div>
+            {% for h in c.holidays %}
+              <button type="button" class="cal-chip" style="--c:{{ h.color }}" title="{{ h.name }} — click to edit"
+                      hx-get="{% url 'webportal:holiday_edit' h.id %}" hx-target="#modalContent" hx-swap="innerHTML"
+                      onclick="event.stopPropagation()">{{ h.name }}</button>
+            {% endfor %}
+          </div>
+        {% endfor %}{% endfor %}
+      </div>
+    </div>
+
+  </div>
+</div>

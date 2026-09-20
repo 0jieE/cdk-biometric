@@ -1,0 +1,8 @@
+{% if ok %}
+<div class="alert alert-success py-2 mb-0"><i class="bi bi-check-circle"></i>
+  <strong>{{ device.name }}</strong>: connection OK
+  <span class="text-muted small">(mock backend always reachable; ZK backend pings the unit)</span></div>
+{% else %}
+<div class="alert alert-danger py-2 mb-0"><i class="bi bi-x-circle"></i>
+  <strong>{{ device.name }}</strong>: unreachable.</div>
+{% endif %}

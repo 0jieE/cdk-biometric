@@ -1,0 +1,91 @@
+<div class="lost-summary">
+  <div class="lost-tile"><div class="lost-num text-late">{{ totals.late }}</div><div class="lost-label">Late (min)</div></div>
+  <div class="lost-tile"><div class="lost-num text-half">{{ totals.under }}</div><div class="lost-label">Undertime (min)</div></div>
+  <div class="lost-tile lost-total"><div class="lost-num text-absent">{{ totals.lost }}</div><div class="lost-label">Lost time (min)</div></div>
+</div>
+
+<ul class="nav nav-pills mb-3" role="tablist">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#lt-late" type="button">
+    <i class="bi bi-clock-history"></i> Lates <span class="badge bg-secondary ms-1">{{ rows|length }}</span></button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#lt-under" type="button">
+    <i class="bi bi-box-arrow-left"></i> Undertime <span class="badge bg-secondary ms-1">{{ undertime_rows|length }}</span></button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#lt-emp" type="button">
+    <i class="bi bi-people"></i> By employee <span class="badge bg-secondary ms-1">{{ per_employee|length }}</span></button></li>
+</ul>
+
+<div class="tab-content">
+  <!-- Lates -->
+  <div class="tab-pane fade show active" id="lt-late" role="tabpanel">
+    <div class="table-responsive">
+      <table id="dt-lates" class="table js-dt" data-dt-order='[[0,"desc"]]' style="width:100%">
+        <thead><tr>
+          <th>Date</th><th>Employee</th><th>Department</th><th>Session</th><th>Minutes Late</th></tr></thead>
+        <tbody>
+        {% for l in rows %}
+          <tr>
+            <td data-order="{{ l.date|date:'Y-m-d' }}">{{ l.date|date:"M d, Y" }}</td>
+            <td>{{ l.employee.full_name }} <span class="text-muted small">({{ l.employee.employee_no }})</span></td>
+            <td>{{ l.employee.department.name }}</td>
+            <td><span class="badge-status s-neutral">{{ l.session }}</span></td>
+            <td data-order="{{ l.minutes_late }}"><span class="badge-status s-late">{{ l.minutes_late }} min</span></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Undertime -->
+  <div class="tab-pane fade" id="lt-under" role="tabpanel">
+    <div class="table-responsive">
+      <table id="dt-under" class="table js-dt" data-dt-order='[[0,"desc"]]' style="width:100%">
+        <thead><tr>
+          <th>Date</th><th>Employee</th><th>Department</th><th>Session</th><th>Minutes Undertime</th></tr></thead>
+        <tbody>
+        {% for u in undertime_rows %}
+          <tr>
+            <td data-order="{{ u.date|date:'Y-m-d' }}">{{ u.date|date:"M d, Y" }}</td>
+            <td>{{ u.employee.full_name }} <span class="text-muted small">({{ u.employee.employee_no }})</span></td>
+            <td>{{ u.employee.department.name }}</td>
+            <td><span class="badge-status s-neutral">{{ u.session }}</span></td>
+            <td data-order="{{ u.minutes_undertime }}"><span class="badge-status s-half">{{ u.minutes_undertime }} min</span></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="text-muted small mt-2"><i class="bi bi-info-circle"></i>
+      Undertime = minutes left before the session's scheduled time-out (exact, no grace period).
+      Full-time employees only.</div>
+  </div>
+
+  <!-- Per employee lost time -->
+  <div class="tab-pane fade" id="lt-emp" role="tabpanel">
+    <div class="table-responsive">
+      <table id="dt-lost-emp" class="table js-dt" data-dt-order='[[6,"desc"]]' style="width:100%">
+        <thead><tr>
+          <th>Employee</th><th>Department</th>
+          <th>Lates</th><th>Late (min)</th>
+          <th>Undertimes</th><th>Undertime (min)</th>
+          <th>Lost Time</th></tr></thead>
+        <tbody>
+        {% for p in per_employee %}
+          <tr>
+            <td>{{ p.name }} <span class="text-muted small">({{ p.no }})</span></td>
+            <td>{{ p.dept }}</td>
+            <td data-order="{{ p.late_count }}">{{ p.late_count }}</td>
+            <td data-order="{{ p.late_minutes }}"><span class="badge-status s-late">{{ p.late_minutes }} min</span></td>
+            <td data-order="{{ p.under_count }}">{{ p.under_count }}</td>
+            <td data-order="{{ p.under_minutes }}"><span class="badge-status s-half">{{ p.under_minutes }} min</span></td>
+            <td data-order="{{ p.lost_minutes }}">
+              <span class="badge-status s-absent">{{ p.lost_minutes }} min</span>
+              <span class="text-muted small d-block">{{ p.lost_hours }} h</span></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="text-muted small mt-2"><i class="bi bi-calculator"></i>
+      Lost time = total minutes late + total minutes undertime, over the selected range.</div>
+  </div>
+</div>

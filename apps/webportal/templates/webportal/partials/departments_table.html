@@ -1,0 +1,16 @@
+<table id="dt-departments" class="table js-dt" data-dt-order='[[0,"asc"]]' style="width:100%">
+  <thead><tr>
+    <th>Code</th><th>Name</th><th>Status</th><th class="text-end">Actions</th></tr></thead>
+  <tbody>
+  {% for d in rows %}
+    <tr>
+      <td>{{ d.code }}</td>
+      <td>{{ d.name }}</td>
+      <td>{% if d.is_active %}<span class="badge-status s-present">Active</span>{% else %}<span class="badge-status s-neutral">Inactive</span>{% endif %}</td>
+      <td class="text-end">
+        <button class="btn btn-outline-brand btn-sm" hx-get="{% url 'webportal:department_edit' d.id %}" hx-target="#modalContent"><i class="bi bi-pencil"></i></button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>

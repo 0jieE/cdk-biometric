@@ -1,0 +1,199 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block heading %}Dashboard{% endblock %}
+{% block content %}
+
+<!-- ------------------------------------------------------------- stats -- -->
+<div class="dash-stats">
+  <div class="stat-card" style="--c:var(--brand)">
+    <span class="stat-bar"></span>
+    <span class="stat-ico"><i class="bi bi-people"></i></span>
+    <div class="stat-body">
+      <div class="stat-label">Active Employees</div>
+      <div class="stat-value">{{ total_employees }}</div>
+    </div>
+  </div>
+  <div class="stat-card" style="--c:var(--ok)">
+    <span class="stat-bar"></span>
+    <span class="stat-ico"><i class="bi bi-check2-circle"></i></span>
+    <div class="stat-body">
+      <div class="stat-label">Present Today</div>
+      <div class="stat-value">{{ present }}</div>
+    </div>
+  </div>
+  <div class="stat-card" style="--c:var(--late)">
+    <span class="stat-bar"></span>
+    <span class="stat-ico"><i class="bi bi-clock-history"></i></span>
+    <div class="stat-body">
+      <div class="stat-label">Late (sessions)</div>
+      <div class="stat-value">{{ late }}</div>
+    </div>
+  </div>
+  <div class="stat-card" style="--c:var(--absent)">
+    <span class="stat-bar"></span>
+    <span class="stat-ico"><i class="bi bi-person-x"></i></span>
+    <div class="stat-body">
+      <div class="stat-label">Absent (sessions)</div>
+      <div class="stat-value">{{ absent }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="dash-grid">
+  <!-- ================= LEFT ================= -->
+  <div class="dash-col">
+
+    <!-- Clock + calendar -->
+    <div class="card">
+      <div class="card-head"><span><i class="bi bi-calendar3 me-1"></i> Clock &amp; Calendar</span>
+        <span class="text-muted small">{{ month_name }} {{ year }}</span></div>
+      <div class="card-pad">
+        <div class="dash-clock">
+          <div class="dc-time" id="dash-time">--:--:--</div>
+          <div class="dc-date" id="dash-date"></div>
+        </div>
+        <div class="mini-cal">
+          {% for w in weekday_labels %}<div class="mc-dow">{{ w }}</div>{% endfor %}
+          {% for week in weeks %}{% for c in week %}
+            <div class="mc-day{% if not c.in_month %} out{% endif %}{% if c.is_today %} today{% endif %}{% if c.holidays %} hol{% endif %}"
+                 {% if c.holidays %}style="--hc:{{ c.holidays.0.color }}" title="{{ c.holidays.0.name }}"{% endif %}>
+              {{ c.day|stringformat:"02d" }}
+            </div>
+          {% endfor %}{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Weather -->
+    <div class="card">
+      <div class="card-head"><span><i class="bi bi-cloud-sun me-1"></i> Weather</span>
+        <span class="text-muted small">Kidapawan City</span></div>
+      <div class="card-pad">
+        <div id="dash-weather" class="wx" data-lat="{{ weather_lat }}" data-lon="{{ weather_lon }}">
+          <div class="text-muted small">Loading forecast…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Holidays -->
+    <div class="card">
+      <div class="card-head"><span><i class="bi bi-flag me-1"></i> Upcoming Holidays</span>
+        <a href="{% url 'webportal:holidays' %}" class="btn btn-soft btn-sm">View All</a></div>
+      <div class="card-pad">
+        <div class="hol-list">
+          {% for h in upcoming_holidays %}
+          <div class="hol-item" style="cursor:default">
+            <span class="hol-item-day" style="background:{{ h.color }}">{{ h.date.day|stringformat:"02d" }}</span>
+            <span class="hol-item-body">
+              <span class="hol-item-name">{{ h.name }}</span>
+              <span class="hol-item-meta">{{ h.date|date:"D · M d, Y" }} · {{ h.get_type_display }}</span>
+            </span>
+          </div>
+          {% empty %}
+          <div class="hol-empty"><i class="bi bi-calendar-x"></i><div>No upcoming holidays.</div></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= RIGHT ================= -->
+  <div class="dash-col">
+
+    <!-- Top 5 lost time -->
+    <div class="card">
+      <div class="card-head"><span><i class="bi bi-trophy me-1"></i> Top 5 Lost Time</span>
+        <span class="text-muted small">{{ range_label }}</span></div>
+      <div class="card-pad">
+        {% if top_lost %}
+        <div class="top-grid">
+          {% for t in top_lost %}
+          <div class="top-card" style="--tc:{{ t.employee.avatar_color }}">
+            <div class="top-rank">{{ forloop.counter }}</div>
+            <div class="top-avatar">{% include 'webportal/partials/avatar.html' with emp=t.employee size='md' %}</div>
+            <div class="top-name">{{ t.employee.full_name }}</div>
+            <div class="top-sub">{{ t.employee.department.name }}</div>
+            <div class="top-val">{{ t.total }}<span> min</span></div>
+            <div class="top-break">{{ t.late }} late · {{ t.under }} under</div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-muted text-center py-4">No lost time recorded this month.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Lost time by department -->
+    <div class="card">
+      <div class="card-head"><span><i class="bi bi-bar-chart me-1"></i> Lost Time by Department</span>
+        <span class="text-muted small">{{ range_label }}</span></div>
+      <div class="card-pad">
+        {% if dept_lost %}
+        <div class="chart">
+          <div class="chart-legend">
+            {% for d in dept_lost %}
+            <div class="cl-item">
+              <span class="cl-dot" style="background:{{ d.color }}"></span>
+              <div class="cl-text">
+                <div class="cl-name">{{ d.name }}</div>
+                <div class="cl-sub">{{ d.total }} min · {{ d.late }} late + {{ d.under }} undertime</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="chart-plot">
+            <div class="chart-grid">
+              {% for g in gridlines %}<div class="cg-line"><span class="cg-label">{{ g }}</span></div>{% endfor %}
+            </div>
+            <div class="chart-bars">
+              {% for d in dept_lost %}
+              <div class="cb" title="{{ d.name }} — {{ d.total }} min lost">
+                <div class="cb-track"><div class="cb-bar" style="height:{{ d.pct }}%;background:{{ d.color }}"></div></div>
+                <div class="cb-label">{{ d.code }}</div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        {% else %}
+        <div class="text-muted text-center py-4">No lost time recorded this month.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Recent punches -->
+    <div class="card">
+      <div class="card-head">
+        <span><i class="bi bi-clock-history me-1"></i> Recent Punches</span>
+        <button class="btn btn-soft btn-sm" hx-post="{% url 'webportal:sync_now' %}"
+                hx-target="#syncResult" hx-indicator="#syncSpin" title="Pull latest punches from the device">
+          <i class="bi bi-arrow-repeat"></i> Sync
+          <span id="syncSpin" class="htmx-indicator spinner-border spinner-border-sm"></span>
+        </button>
+      </div>
+      <div id="syncResult"></div>
+      <div id="recentPunches" hx-get="{% url 'webportal:dashboard_recent' %}" hx-trigger="load, every 30s">
+        <div class="card-pad text-muted">Loading…</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var t = document.getElementById('dash-time'), d = document.getElementById('dash-date');
+  if (!t) return;
+  function tick() {
+    var n = new Date();
+    function p(x) { return (x < 10 ? '0' : '') + x; }
+    var h = n.getHours(), ap = h >= 12 ? 'PM' : 'AM', h12 = h % 12 || 12;
+    t.textContent = p(h12) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' ' + ap;
+    d.textContent = n.toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  }
+  tick(); setInterval(tick, 1000);
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,89 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live Attendance · CKC</title>
+  <link rel="icon" href="{% static 'webportal/img/logo.png' %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{% static 'webportal/css/portal.css' %}" rel="stylesheet">
+</head>
+<body>
+  <div class="kiosk">
+    <header class="kiosk-head">
+      <img src="{% static 'webportal/img/logo.png' %}" alt="CKC" onerror="this.style.display='none'">
+      <div>
+        <h1>Live Attendance</h1>
+        <div class="sub">Colegio de Kidapawan</div>
+      </div>
+      <span class="k-live"><span class="k-dot"></span> LIVE</span>
+    </header>
+
+    <div class="kiosk-body">
+      <!-- Clock -->
+      <aside class="k-panel k-clock">
+        <div class="k-time" id="k-time">--:--:--</div>
+        <div class="k-ampm" id="k-ampm"></div>
+        <div class="k-date" id="k-date"></div>
+      </aside>
+
+      <!-- Feed (stable wrapper; only its contents are swapped). Loaded once on
+           page load, then refreshed on demand — pushed by the SSE stream
+           below the instant a new punch is committed, not on a timer. -->
+      <div id="feed" hx-get="{% url 'webportal:live_feed' %}" hx-trigger="load"
+           hx-target="#feed" hx-swap="innerHTML">
+        <div class="k-panel"><div class="k-empty">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.12/dist/htmx.min.js"></script>
+  <script>
+    (function () {
+      var t = document.getElementById('k-time'),
+          a = document.getElementById('k-ampm'),
+          d = document.getElementById('k-date');
+      function p(x) { return (x < 10 ? '0' : '') + x; }
+      function tick() {
+        var n = new Date(), h = n.getHours();
+        t.textContent = p(h % 12 || 12) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds());
+        a.textContent = h >= 12 ? 'PM' : 'AM';
+        d.textContent = n.toLocaleDateString(undefined,
+          { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      }
+      tick(); setInterval(tick, 1000);
+    })();
+
+    // Real-time refresh: the server pushes one "refresh" event over SSE the
+    // moment a new punch is committed (see webportal.views.live_logs_stream),
+    // so this just re-fetches the feed right then — no polling delay.
+    // Skipped while browsing "all punches today" so that view isn't yanked
+    // out from under the reader; a 60s fallback poll guards against a missed
+    // SSE message (e.g. a reconnect gap).
+    (function () {
+      var FEED_URL = "{% url 'webportal:live_feed' %}";
+      var STREAM_URL = "{% url 'webportal:live_stream' %}";
+
+      function refreshIfLive() {
+        var panel = document.querySelector('#feed .k-panel');
+        if (panel && panel.getAttribute('data-mode') === 'all') return;
+        htmx.ajax('GET', FEED_URL, { target: '#feed', swap: 'innerHTML' });
+      }
+
+      function connect() {
+        var source = new EventSource(STREAM_URL);
+        source.onmessage = function (e) {
+          if (e.data === 'refresh') refreshIfLive();
+        };
+        // EventSource auto-reconnects on its own after a drop; nothing to do here.
+      }
+      connect();
+
+      setInterval(refreshIfLive, 60000);
+    })();
+  </script>
+</body>
+</html>

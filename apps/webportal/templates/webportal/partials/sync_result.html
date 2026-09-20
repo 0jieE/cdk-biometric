@@ -1,0 +1,9 @@
+<div class="alert alert-success py-2 mb-0">
+  <i class="bi bi-check-circle"></i>
+  Synced{% if device %} <strong>{{ device.name }}</strong>{% endif %}:
+  created <strong>{{ result.created }}</strong>,
+  duplicates <strong>{{ result.duplicates }}</strong>,
+  lates <strong>{{ result.lates }}</strong>,
+  skipped <strong>{{ result.skipped }}</strong>
+  over {{ result.dates_processed }} day(s).
+</div>

@@ -1,0 +1,15 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Devices{% endblock %}
+{% block heading %}Biometric Devices{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-end mb-3">
+  <button class="btn btn-brand btn-sm" hx-get="{% url 'webportal:device_create' %}" hx-target="#modalContent">
+    <i class="bi bi-plus-lg"></i> New Device</button>
+</div>
+<div id="deviceActionResult" class="mb-3"></div>
+<div class="card"><div class="card-pad">
+  <div id="list" hx-get="{% url 'webportal:devices' %}" hx-target="#list" hx-trigger="load, refreshList from:body">
+    <div class="text-muted">Loading…</div>
+  </div>
+</div></div>
+{% endblock %}

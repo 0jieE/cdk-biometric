@@ -1,0 +1,35 @@
+{% extends 'webportal/base.html' %}
+{% block title %}{{ department.name }}{% endblock %}
+{% block heading %}Department{% endblock %}
+{% block content %}
+<div id="profile"
+     hx-get="{% url 'webportal:department_detail' department.id %}"
+     hx-trigger="refreshProfile from:body"
+     hx-swap="innerHTML">
+  {% include 'webportal/partials/department_body.html' %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  function filter() {
+    var q = ((document.getElementById('dept-emp-search') || {}).value || '').trim().toLowerCase();
+    var shown = 0;
+    document.querySelectorAll('#dept-emp-grid .emp-card').forEach(function (c) {
+      var vis = !q || c.dataset.search.indexOf(q) !== -1;
+      c.style.display = vis ? '' : 'none';
+      if (vis) shown++;
+    });
+    var empty = document.getElementById('dept-emp-empty');
+    if (empty) empty.style.display = shown ? 'none' : '';
+    var count = document.getElementById('dept-emp-count');
+    if (count) count.textContent = shown;
+  }
+  document.addEventListener('input', function (e) { if (e.target.id === 'dept-emp-search') filter(); });
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    if (e.detail.target && e.detail.target.id === 'profile') filter();
+  });
+})();
+</script>
+{% endblock %}

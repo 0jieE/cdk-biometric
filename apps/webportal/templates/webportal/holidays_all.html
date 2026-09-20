@@ -1,0 +1,16 @@
+{% extends 'webportal/base.html' %}
+{% block title %}All Holidays{% endblock %}
+{% block heading %}All Holidays{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+  <a href="{% url 'webportal:holidays' %}" class="btn btn-soft btn-sm"><i class="bi bi-arrow-left"></i> Back to calendar</a>
+  <div class="flex-grow-1"></div>
+  <button class="btn btn-brand btn-sm" hx-get="{% url 'webportal:holiday_create' %}" hx-target="#modalContent" hx-swap="innerHTML">
+    <i class="bi bi-plus-lg"></i> New Holiday</button>
+</div>
+<div class="card"><div class="card-pad">
+  <div id="list" hx-get="{% url 'webportal:holiday_list' %}" hx-target="#list" hx-trigger="load, refreshList from:body">
+    <div class="text-muted">Loading…</div>
+  </div>
+</div></div>
+{% endblock %}

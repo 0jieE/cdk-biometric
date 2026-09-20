@@ -1,0 +1,67 @@
+<div class="modal-header">
+  <h5 class="modal-title">{% if instance %}Edit Holiday{% else %}Add Holiday{% endif %}</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form hx-post="{{ request.path }}" hx-target="#modalContent">
+  <div class="modal-body">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-danger py-2">{{ form.non_field_errors }}</div>{% endif %}
+
+    <div class="mb-2">
+      <label class="form-label small">Date</label>
+      {{ form.date }}
+      {% if form.date.errors %}<div class="text-danger small">{{ form.date.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="mb-2">
+      <label class="form-label small">Name</label>
+      {{ form.name }}
+      {% if form.name.errors %}<div class="text-danger small">{{ form.name.errors|striptags }}</div>{% endif %}
+    </div>
+    <div class="row g-2">
+      <div class="col-sm-6">
+        <label class="form-label small">Type</label>
+        {{ form.type }}
+      </div>
+      <div class="col-sm-6">
+        <label class="form-label small">Day color</label>
+        <div class="d-flex align-items-center gap-2">
+          {{ form.color }}
+          <div class="hol-swatches d-flex gap-1 flex-wrap">
+            <button type="button" class="hol-sw" data-color="#DC2626" style="background:#DC2626"></button>
+            <button type="button" class="hol-sw" data-color="#F59E0B" style="background:#F59E0B"></button>
+            <button type="button" class="hol-sw" data-color="#16A34A" style="background:#16A34A"></button>
+            <button type="button" class="hol-sw" data-color="#2563EB" style="background:#2563EB"></button>
+            <button type="button" class="hol-sw" data-color="#6D28D9" style="background:#6D28D9"></button>
+            <button type="button" class="hol-sw" data-color="#0D9488" style="background:#0D9488"></button>
+            <button type="button" class="hol-sw" data-color="#DB2777" style="background:#DB2777"></button>
+          </div>
+        </div>
+        {% if form.color.errors %}<div class="text-danger small">{{ form.color.errors|striptags }}</div>{% endif %}
+      </div>
+    </div>
+    <div class="form-check mt-3">
+      {{ form.is_recurring }}<label class="form-check-label ms-1">Recurs every year (same month & day)</label>
+    </div>
+  </div>
+  <div class="modal-footer justify-content-between">
+    <div>
+      {% if instance %}
+      <button type="button" class="btn btn-outline-danger btn-sm"
+              hx-post="{% url 'webportal:holiday_delete' instance.id %}"
+              hx-confirm="Delete {{ instance.name }}?"><i class="bi bi-trash"></i> Delete</button>
+      {% endif %}
+    </div>
+    <div>
+      <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </div>
+</form>
+<script>
+  (function () {
+    var input = document.getElementById('id_color');
+    document.querySelectorAll('.hol-swatches .hol-sw').forEach(function (b) {
+      b.addEventListener('click', function () { if (input) input.value = b.dataset.color; });
+    });
+  })();
+</script>

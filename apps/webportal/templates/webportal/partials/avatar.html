@@ -1,0 +1,9 @@
+{% comment %}Reusable avatar. Usage: {% include 'webportal/partials/avatar.html' with emp=e size='lg' %}
+size ∈ sm|md|lg|xl (default md). Falls back to an initials wordmark when no photo.{% endcomment %}
+<span class="avatar avatar-{{ size|default:'md' }}">
+  {% if emp.photo %}
+    <img src="{{ emp.photo.url }}" alt="{{ emp.full_name }}">
+  {% else %}
+    <span class="avatar-wm" style="--wm:{{ emp.avatar_color }}">{{ emp.initials }}</span>
+  {% endif %}
+</span>

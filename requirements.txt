@@ -1,0 +1,40 @@
+# Core framework (Django 5.2 LTS — pinned per Phase 1 spec; the pre-installed
+# Django 6.0 is intentionally downgraded for DRF/simplejwt compatibility)
+Django>=5.2,<5.3
+
+# REST API + JWT for the employee mobile app
+djangorestframework>=3.15,<3.17
+djangorestframework-simplejwt>=5.3,<6.0
+
+# MySQL driver
+mysqlclient>=2.2,<3.0
+
+# Env management + CORS (for the Flutter app later)
+django-environ>=0.11,<1.0
+django-cors-headers>=4.4,<5.0
+
+# ZKTeco biometric device library (used only by the real ZK backend)
+pyzk>=0.9
+
+# Utilities
+python-dateutil>=2.9
+Pillow>=10.4
+
+# --- Phase 2: async, reports, push ---
+# Celery + Redis broker + DB-backed editable schedule
+celery>=5.4,<6.0
+redis>=5.0
+django-celery-beat>=2.7
+
+# Report generation: Excel + pure-Python HTML->PDF (Windows-friendly)
+openpyxl>=3.1
+xhtml2pdf>=0.2.16
+
+# Firebase Cloud Messaging (push). Optional at runtime — no-ops if unconfigured.
+firebase-admin>=6.5
+
+# --- Phase 4: Docker deployment ---
+# WSGI server for the prod-shaped container command
+gunicorn>=22.0
+# Auto-restart the Celery worker on code changes (dev bind-mount loop)
+watchdog>=4.0

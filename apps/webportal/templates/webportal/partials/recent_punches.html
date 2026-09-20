@@ -1,0 +1,20 @@
+{% load webportal_extras %}
+<div class="punch-recent-list">
+  {% for log in logs %}
+  <div class="punch-row">
+    {% include 'webportal/partials/avatar.html' with emp=log.employee size='sm' %}
+    <div class="punch-row-body">
+      <div class="punch-row-name">{{ log.employee.full_name }}</div>
+      <div class="punch-row-meta">
+        {% if log.source == 'MANUAL' %}<i class="bi bi-pencil"></i> manual{% else %}{{ log.device.name|default:"device" }}{% endif %}
+      </div>
+    </div>
+    <div class="punch-row-right">
+      {% punch_badge log.log_type %}
+      <div class="punch-row-time">{{ log.log_datetime|date:"M d" }} · {{ log.log_datetime|time:"g:i A" }}</div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="punch-empty"><i class="bi bi-inbox"></i><div>No punches yet.</div></div>
+  {% endfor %}
+</div>

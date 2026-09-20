@@ -1,0 +1,202 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Manual Entry{% endblock %}
+{% block heading %}Punch Terminal{% endblock %}
+{% block content %}
+{{ employees_data|json_script:"emp-data" }}
+
+<div class="punch-layout">
+
+  <!-- LEFT: the terminal device -->
+  <div class="device">
+    {% if result %}
+    <div class="dv-confirm">
+      <i class="bi bi-check-circle-fill"></i>
+      <div>
+        <div class="dv-confirm-title">Punch recorded</div>
+        <div class="dv-confirm-sub">{{ result.employee.full_name }} · {{ result.log_type }} ·
+          {{ result.time|time:"g:i A" }} · day status <b>{{ result.status }}</b></div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if form.non_field_errors %}
+    <div class="dv-error"><i class="bi bi-exclamation-triangle-fill"></i> {{ form.non_field_errors|striptags }}</div>
+    {% endif %}
+
+    <div class="dv-screen">
+      <div class="dv-time" id="dv-time">--:--:--</div>
+      <div class="dv-date" id="dv-date"></div>
+    </div>
+
+    <form method="post" action="{% url 'webportal:manual_attendance' %}" id="punch-form">
+      {% csrf_token %}
+      <input type="hidden" name="employee" id="punch-emp">
+      <input type="hidden" name="log_type" id="punch-type">
+
+      <div class="dv-emp">
+        <div class="dv-search" id="dv-search">
+          <i class="bi bi-search"></i>
+          <input type="text" id="emp-search" placeholder="Search employee by name or ID…" autocomplete="off">
+        </div>
+        <div class="dv-results" id="emp-results" hidden></div>
+
+        <div class="dv-selected" id="emp-selected" hidden>
+          <span class="avatar avatar-md" id="sel-avatar"></span>
+          <div class="dv-selected-body">
+            <div class="dv-selected-name" id="sel-name"></div>
+            <div class="dv-selected-meta"><span id="sel-no"></span> · <span id="sel-type"></span></div>
+          </div>
+          <button type="button" class="dv-clear" id="emp-clear" title="Change employee"><i class="bi bi-x-lg"></i></button>
+        </div>
+      </div>
+
+      <div class="dv-typebar">
+        <button type="button" class="dv-arrow" id="type-prev" aria-label="Previous"><i class="bi bi-chevron-left"></i></button>
+        <div class="dv-type" id="type-display">
+          <div class="dv-type-hint">Log type</div>
+          <div class="dv-type-value" id="type-value">—</div>
+        </div>
+        <button type="button" class="dv-arrow" id="type-next" aria-label="Next"><i class="bi bi-chevron-right"></i></button>
+      </div>
+
+      <button type="submit" class="dv-record" id="dv-record" disabled>
+        <i class="bi bi-fingerprint"></i> Record Punch</button>
+      <div class="dv-foot">Recorded as <code>MANUAL</code> at the current time · brownout fallback</div>
+    </form>
+  </div>
+
+  <!-- RIGHT: recent punches -->
+  <aside class="punch-recent">
+    <div class="punch-recent-head"><i class="bi bi-clock-history"></i> Recent punches</div>
+    <div class="punch-recent-list">
+      {% for log in recent_punches %}
+      <div class="punch-row">
+        {% include 'webportal/partials/avatar.html' with emp=log.employee size='sm' %}
+        <div class="punch-row-body">
+          <div class="punch-row-name">{{ log.employee.full_name }}</div>
+          <div class="punch-row-meta">{{ log.employee.employee_no }}</div>
+        </div>
+        <div class="punch-row-right">
+          <span class="badge-status {% if 'OUT' in log.log_type %}s-out{% else %}s-in{% endif %}">{{ log.log_type }}</span>
+          <div class="punch-row-time">{{ log.log_datetime|date:"M d" }} · {{ log.log_datetime|time:"g:i A" }}</div>
+        </div>
+      </div>
+      {% empty %}
+      <div class="punch-empty"><i class="bi bi-inbox"></i><div>No punches yet.</div></div>
+      {% endfor %}
+    </div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var EMPS = JSON.parse(document.getElementById('emp-data').textContent || '[]');
+  var FT = ['AM_IN', 'AM_OUT', 'PM_IN', 'PM_OUT', 'OT_IN', 'OT_OUT'];
+  var PT = ['IN', 'OUT'];
+  var LABELS = { AM_IN:'AM In', AM_OUT:'AM Out', PM_IN:'PM In', PM_OUT:'PM Out',
+                 OT_IN:'OT In', OT_OUT:'OT Out', IN:'Time In', OUT:'Time Out' };
+
+  /* live clock */
+  var t = document.getElementById('dv-time'), d = document.getElementById('dv-date');
+  function tick() {
+    var n = new Date();
+    function p(x){ return (x<10?'0':'')+x; }
+    var h = n.getHours(), ap = h>=12?'PM':'AM', h12 = h%12||12;
+    t.textContent = p(h12)+':'+p(n.getMinutes())+':'+p(n.getSeconds())+' '+ap;
+    d.textContent = n.toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  }
+  tick(); setInterval(tick, 1000);
+
+  /* employee search-select */
+  var search = document.getElementById('emp-search');
+  var results = document.getElementById('emp-results');
+  var selected = document.getElementById('emp-selected');
+  var searchBox = document.getElementById('dv-search');
+  var record = document.getElementById('dv-record');
+  var empField = document.getElementById('punch-emp');
+  var typeField = document.getElementById('punch-type');
+  var current = null, types = [], typeIdx = 0;
+
+  function avatarHTML(e) {
+    return e.photo ? '<img src="'+e.photo+'" alt="">'
+      : '<span class="avatar-wm" style="--wm:'+e.color+'">'+e.initials+'</span>';
+  }
+  function renderResults(q) {
+    q = q.trim().toLowerCase();
+    var list = EMPS.filter(function (e) {
+      return !q || e.name.toLowerCase().indexOf(q) !== -1 || e.no.toLowerCase().indexOf(q) !== -1;
+    }).slice(0, 8);
+    if (!list.length) { results.innerHTML = '<div class="dv-noresult">No match</div>'; results.hidden = false; return; }
+    results.innerHTML = list.map(function (e) {
+      return '<button type="button" class="dv-result" data-id="'+e.id+'">' +
+        '<span class="avatar avatar-sm">'+avatarHTML(e)+'</span>' +
+        '<span class="dv-result-body"><span class="dv-result-name">'+e.name+'</span>' +
+        '<span class="dv-result-meta">'+e.no+' · '+(e.ft?'Full-time':'Part-time')+'</span></span></button>';
+    }).join('');
+    results.hidden = false;
+  }
+  function selectEmp(e) {
+    current = e;
+    empField.value = e.id;
+    searchBox.hidden = true; results.hidden = true;
+    document.getElementById('sel-avatar').innerHTML = avatarHTML(e);
+    document.getElementById('sel-name').textContent = e.name;
+    document.getElementById('sel-no').textContent = e.no;
+    document.getElementById('sel-type').textContent = e.ft ? 'Full-time' : 'Part-time';
+    selected.hidden = false;
+    types = e.ft ? FT.slice() : PT.slice();
+    typeIdx = 0; renderType();
+    record.disabled = false;
+  }
+  function clearEmp() {
+    current = null; empField.value = ''; typeField.value = '';
+    selected.hidden = true; searchBox.hidden = false;
+    search.value = ''; results.hidden = true;
+    types = []; renderType(); record.disabled = true;
+    search.focus();
+  }
+
+  search.addEventListener('input', function () { renderResults(search.value); });
+  search.addEventListener('focus', function () { renderResults(search.value); });
+  results.addEventListener('click', function (ev) {
+    var b = ev.target.closest('.dv-result'); if (!b) return;
+    var e = EMPS.filter(function (x) { return String(x.id) === b.getAttribute('data-id'); })[0];
+    if (e) selectEmp(e);
+  });
+  document.getElementById('emp-clear').addEventListener('click', clearEmp);
+
+  /* close the results when clicking outside / pressing Escape */
+  document.addEventListener('click', function (ev) {
+    if (!ev.target.closest('#dv-search') && !ev.target.closest('#emp-results')) results.hidden = true;
+  });
+  search.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') { results.hidden = true; search.blur(); } });
+
+  /* log type stepper */
+  var typeValue = document.getElementById('type-value');
+  var typeDisplay = document.getElementById('type-display');
+  function renderType() {
+    if (!types.length) { typeValue.textContent = '—'; typeField.value = '';
+      typeDisplay.classList.remove('is-in', 'is-out'); return; }
+    var key = types[typeIdx];
+    typeValue.textContent = LABELS[key] || key;
+    typeField.value = key;
+    var isOut = /OUT$/.test(key);
+    typeDisplay.classList.toggle('is-out', isOut);
+    typeDisplay.classList.toggle('is-in', !isOut);
+  }
+  function step(dir) {
+    if (!types.length) return;
+    typeIdx = (typeIdx + dir + types.length) % types.length;
+    renderType();
+  }
+  document.getElementById('type-prev').addEventListener('click', function () { step(-1); });
+  document.getElementById('type-next').addEventListener('click', function () { step(1); });
+
+  document.getElementById('punch-form').addEventListener('submit', function (ev) {
+    if (!empField.value || !typeField.value) ev.preventDefault();
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,28 @@
+# Virtualenv (host-only; the image installs its own deps)
+env/
+venv/
+
+# Local secrets — the container is configured via .env.docker / env_file
+.env
+
+# Service-account keys — never bake into the image; provided via bind mount
+secrets/
+
+# Python caches / build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local data that must not be baked into the image
+media/
+staticfiles/
+*.sqlite3
+db.sqlite3
+
+# VCS / editor / OS
+.git/
+.gitignore
+.idea/
+.vscode/
+.DS_Store

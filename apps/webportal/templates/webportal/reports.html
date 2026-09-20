@@ -1,0 +1,30 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Reports{% endblock %}
+{% block heading %}Reports{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-head">Generate Report</div>
+      <div class="card-pad">
+        <div id="reportForm">
+          {% include 'webportal/partials/report_form.html' %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-head">
+        <span>Report Jobs</span>
+        <span class="text-muted small"><i class="bi bi-arrow-clockwise"></i> polls every 3s</span>
+      </div>
+      <div id="jobs" hx-get="{% url 'webportal:report_jobs' %}"
+           hx-trigger="load, refreshJobs from:body, every 3s">
+        {% include 'webportal/partials/report_jobs.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

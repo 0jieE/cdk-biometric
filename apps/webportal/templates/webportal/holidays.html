@@ -1,0 +1,11 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Holidays{% endblock %}
+{% block heading %}Holidays{% endblock %}
+{% block content %}
+<div id="cal"
+     hx-get="{% url 'webportal:holidays' %}"
+     hx-trigger="load, refreshList from:body"
+     hx-target="#cal" hx-swap="outerHTML">
+  <div class="card"><div class="card-pad text-muted">Loading calendar…</div></div>
+</div>
+{% endblock %}

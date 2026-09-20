@@ -1,0 +1,73 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Employees{% endblock %}
+{% block heading %}Employees{% endblock %}
+{% block content %}
+<div class="card mb-3"><div class="card-pad">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <div class="flex-grow-1" style="min-width:200px">
+      <input id="emp-search" class="form-control" placeholder="Search name or employee no…" autocomplete="off">
+    </div>
+    <select id="emp-dept" class="form-select" style="max-width:210px">
+      <option value="">All departments</option>
+      {% for d in departments %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+    </select>
+    <div class="btn-group" id="emp-type" role="group">
+      <button type="button" class="btn btn-outline-brand btn-sm active" data-type="">All</button>
+      <button type="button" class="btn btn-outline-brand btn-sm" data-type="FULL_TIME">Full-time</button>
+      <button type="button" class="btn btn-outline-brand btn-sm" data-type="PART_TIME">Part-time</button>
+    </div>
+    <button class="btn btn-brand btn-sm" hx-get="{% url 'webportal:employee_create' %}" hx-target="#modalContent">
+      <i class="bi bi-plus-lg"></i> New Employee</button>
+  </div>
+</div></div>
+
+<div id="list" hx-get="{% url 'webportal:employees' %}" hx-target="#list" hx-trigger="load, refreshList from:body">
+  <div class="text-muted">Loading…</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  function filter() {
+    var q = (document.getElementById('emp-search') || {}).value || '';
+    q = q.trim().toLowerCase();
+    var dept = (document.getElementById('emp-dept') || {}).value || '';
+    var typeBtn = document.querySelector('#emp-type .active');
+    var type = typeBtn ? typeBtn.getAttribute('data-type') : '';
+    var shown = 0, cards = document.querySelectorAll('.emp-card');
+    cards.forEach(function (c) {
+      var okQ = !q || c.dataset.search.indexOf(q) !== -1;
+      var okD = !dept || c.dataset.dept === dept;
+      var okT = !type || c.dataset.type === type;
+      var vis = okQ && okD && okT;
+      c.style.display = vis ? '' : 'none';
+      if (vis) shown++;
+    });
+    var empty = document.getElementById('emp-empty');
+    if (empty) empty.style.display = shown ? 'none' : '';
+    var count = document.getElementById('emp-count');
+    if (count) count.textContent = shown;
+  }
+  window.__empFilter = filter;
+
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'emp-search') filter();
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'emp-dept') filter();
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('#emp-type [data-type]');
+    if (!b) return;
+    document.querySelectorAll('#emp-type [data-type]').forEach(function (x) { x.classList.remove('active'); });
+    b.classList.add('active');
+    filter();
+  });
+  // Re-apply the active filters whenever the card list is (re)loaded.
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    if (e.detail.target && e.detail.target.id === 'list') filter();
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,150 @@
+# Base (prod-shaped) stack: db + redis + web (gunicorn) + celery + nginx.
+# Docker Compose auto-merges docker-compose.override.yml for the dev loop.
+name: biometric
+
+services:
+  db:
+    image: mysql:8
+    env_file: .env.docker
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-attendance_db}
+    volumes:
+      - mysql_data:/var/lib/mysql          # named volume => data survives `down`
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks: [appnet]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    networks: [appnet]
+    restart: unless-stopped
+
+  web:
+    build: .
+    image: biometric-backend:latest       # built once here, reused by celery_*
+    env_file: .env.docker
+    environment:
+      RUN_MIGRATIONS: "true"
+      SEED_ON_START: "true"
+      COLLECT_STATIC: "true"
+    # --workers raised 3->5: each open /live/ SSE connection (real-time kiosk
+    # push) ties up one sync worker for as long as the tab stays open.
+    # --timeout raised 30->60: gunicorn's default 30s worker timeout would
+    # otherwise kill an SSE connection between its 15s heartbeats under any
+    # scheduling jitter; the view's own heartbeat still bounds the real wait.
+    command: ["gunicorn", "core.wsgi:application", "--bind", "0.0.0.0:8000",
+               "--workers", "5", "--timeout", "60"]
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    expose:
+      - "8000"                             # internal only; nginx fronts it
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks: [appnet]
+    restart: unless-stopped
+
+  celery_worker:
+    image: biometric-backend:latest
+    env_file: .env.docker
+    environment:
+      RUN_MIGRATIONS: "false"
+      WAIT_FOR_MIGRATIONS: "true"
+      SEED_ON_START: "false"
+      COLLECT_STATIC: "false"
+    command: ["celery", "-A", "core", "worker", "-l", "info"]
+    volumes:
+      - media_volume:/app/media            # report files are written here
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      web:
+        condition: service_started
+    networks: [appnet]
+    restart: unless-stopped
+
+  celery_beat:
+    image: biometric-backend:latest
+    env_file: .env.docker
+    environment:
+      RUN_MIGRATIONS: "false"
+      WAIT_FOR_MIGRATIONS: "true"
+      SEED_ON_START: "false"
+      COLLECT_STATIC: "false"
+    command: ["celery", "-A", "core", "beat", "-l", "info", "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      web:
+        condition: service_started
+    networks: [appnet]
+    restart: unless-stopped
+
+  # Real-time punches from the ZKTeco unit (pyzk live_capture). Needs
+  # BIOMETRIC_DEVICE_BACKEND=zk; restarts on its own if the device drops.
+  attendance_listener:
+    image: biometric-backend:latest
+    env_file: .env.docker
+    environment:
+      RUN_MIGRATIONS: "false"
+      WAIT_FOR_MIGRATIONS: "true"
+      SEED_ON_START: "false"
+      COLLECT_STATIC: "false"
+      PYTHONUNBUFFERED: "1"
+    command: ["python", "manage.py", "attendance_listener"]
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks: [appnet]
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_volume:/app/staticfiles:ro
+      - media_volume:/app/media:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - web
+    networks: [appnet]
+    restart: unless-stopped
+
+  # Anonymous Cloudflare Quick Tunnel — gives a temporary public HTTPS URL
+  # (https://<random>.trycloudflare.com) pointing at nginx. No account/domain.
+  # The assigned URL is printed to this service's logs and changes on restart.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://nginx:80
+    depends_on:
+      - nginx
+    networks: [appnet]
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
+  static_volume:
+  media_volume:
+
+networks:
+  appnet:
+    driver: bridge

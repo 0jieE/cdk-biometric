@@ -1,0 +1,11 @@
+{% comment %}Styled workday toggles. Expects `field` (the workdays BoundField) and `idprefix`.{% endcomment %}
+<div class="day-grid">
+  {% for value, label in field.field.choices %}
+  <label class="day-toggle" for="{{ idprefix }}-{{ value }}">
+    <input type="checkbox" name="{{ field.html_name }}" value="{{ value }}" id="{{ idprefix }}-{{ value }}"
+           {% if value in field.value %}checked{% endif %}>
+    <span class="day-box"><i class="bi bi-check-lg"></i></span>
+    <span class="day-name">{{ label }}</span>
+  </label>
+  {% endfor %}
+</div>

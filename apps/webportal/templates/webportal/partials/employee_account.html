@@ -1,0 +1,57 @@
+<div class="modal-header">
+  <h5 class="modal-title"><i class="bi bi-shield-lock me-1"></i> Manage account</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body">
+  <div class="d-flex align-items-center gap-2 mb-3">
+    {% include 'webportal/partials/avatar.html' with emp=employee size='md' %}
+    <div>
+      <div class="fw-semibold">{{ employee.full_name }}</div>
+      <div class="text-muted small">{{ employee.employee_no }}</div>
+    </div>
+  </div>
+
+  {% if account %}
+    <div class="profile-facts mb-3">
+      <div><span>Username</span><b>{{ account.username }}</b></div>
+      <div><span>Email</span><b>{{ account.email|default:"—" }}</b></div>
+      <div><span>Role</span><b>{{ account.get_role_display }}</b></div>
+      <div><span>Login status</span>
+        <b>{% if account.is_active %}<span class="badge-status s-in">Enabled</span>
+           {% else %}<span class="badge-status s-neutral">Disabled</span>{% endif %}</b></div>
+      <div><span>Last login</span><b>{{ account.last_login|date:"M d, Y H:i"|default:"Never" }}</b></div>
+    </div>
+
+    <div class="d-grid gap-2">
+      <button class="btn btn-outline-brand btn-sm" hx-post="{% url 'webportal:employee_account' employee.id %}"
+              hx-vals='{"action":"reset"}' hx-target="#modalContent"
+              hx-confirm="Reset this employee's password to the default ({{ default_password }})?">
+        <i class="bi bi-key"></i> Reset password to default</button>
+
+      {% if account.is_active %}
+      <button class="btn btn-outline-danger btn-sm" hx-post="{% url 'webportal:employee_account' employee.id %}"
+              hx-vals='{"action":"disable"}' hx-target="#modalContent"
+              hx-confirm="Disable this login? The employee won't be able to sign in to the mobile app.">
+        <i class="bi bi-lock"></i> Disable login</button>
+      {% else %}
+      <button class="btn btn-outline-success btn-sm" hx-post="{% url 'webportal:employee_account' employee.id %}"
+              hx-vals='{"action":"enable"}' hx-target="#modalContent">
+        <i class="bi bi-unlock"></i> Enable login</button>
+      {% endif %}
+    </div>
+    <p class="text-muted small mt-3 mb-0"><i class="bi bi-info-circle"></i>
+      Default password is <code>{{ default_password }}</code>. Ask the employee to change it after signing in.</p>
+  {% else %}
+    <div class="alert alert-warning py-2 small">This employee has no login account yet.</div>
+    <div class="d-grid">
+      <button class="btn btn-brand btn-sm" hx-post="{% url 'webportal:employee_account' employee.id %}"
+              hx-vals='{"action":"create"}' hx-target="#modalContent">
+        <i class="bi bi-person-plus"></i> Create login account</button>
+    </div>
+    <p class="text-muted small mt-3 mb-0">Username will be <code>{{ employee.employee_no|lower }}</code>,
+      password <code>{{ default_password }}</code>.</p>
+  {% endif %}
+</div>
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+</div>

@@ -1,0 +1,19 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Overtime{% endblock %}
+{% block heading %}Overtime Authorization{% endblock %}
+{% block content %}
+<div class="card mb-3" style="background:var(--brand-tint);border-color:transparent"><div class="card-pad d-flex align-items-start gap-2">
+  <i class="bi bi-info-circle" style="color:var(--brand);font-size:18px"></i>
+  <div class="small">Overtime is a <strong>privilege</strong> — computed only for an employee + date with an
+    authorization here. Leaving late without one yields no overtime. Full-time employees only.</div>
+</div></div>
+<div class="d-flex justify-content-end mb-3">
+  <button class="btn btn-brand btn-sm" hx-get="{% url 'webportal:overtime_create' %}" hx-target="#modalContent">
+    <i class="bi bi-plus-lg"></i> Authorize Overtime</button>
+</div>
+<div class="card"><div class="card-pad">
+  <div id="list" hx-get="{% url 'webportal:overtime' %}" hx-target="#list" hx-trigger="load, refreshList from:body">
+    <div class="text-muted">Loading…</div>
+  </div>
+</div></div>
+{% endblock %}

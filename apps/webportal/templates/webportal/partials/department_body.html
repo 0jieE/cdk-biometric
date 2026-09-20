@@ -1,0 +1,47 @@
+<a href="{% url 'webportal:departments' %}" class="btn btn-soft btn-sm mb-3"><i class="bi bi-arrow-left"></i> Back to departments</a>
+
+<div class="card dept-hero-card mb-3">
+  <div class="dept-hero"
+       {% if department.banner %}style="background-image:url('{{ department.banner.url }}')"{% else %}style="background:var(--brand-grad)"{% endif %}></div>
+  <div class="dept-hero-body">
+    <div class="dept-hero-logo">
+      {% if department.logo %}<img src="{{ department.logo.url }}" alt="{{ department.name }}">
+      {% else %}<span class="dept-wm" style="--wm:{{ department.avatar_color }}">{{ department.initials }}</span>{% endif %}
+    </div>
+    <div class="dept-hero-info">
+      <h2 class="h4 mb-1">{{ department.name }}</h2>
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="badge-status s-ot">{{ department.code }}</span>
+        {% if department.is_active %}<span class="badge-status s-present">Active</span>
+        {% else %}<span class="badge-status s-absent">Inactive</span>{% endif %}
+        <span class="text-muted small"><i class="bi bi-people"></i> {{ active_count }} active · {{ total_count }} total</span>
+      </div>
+    </div>
+    <div>
+      <button class="btn btn-outline-brand btn-sm" hx-get="{% url 'webportal:department_edit' department.id %}" hx-target="#modalContent">
+        <i class="bi bi-pencil-square"></i> Edit</button>
+    </div>
+  </div>
+</div>
+
+<div class="card"><div class="card-pad">
+  <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <h3 class="h6 mb-0 flex-grow-1"><i class="bi bi-people me-1"></i> Employees
+      <span class="text-muted fw-normal">(<span id="dept-emp-count">{{ total_count }}</span>)</span></h3>
+    <div style="min-width:200px">
+      <input id="dept-emp-search" class="form-control form-control-sm" placeholder="Search employee…" autocomplete="off">
+    </div>
+  </div>
+
+  <div id="dept-emp-grid" class="emp-grid">
+    {% for e in rows %}
+      {% include 'webportal/partials/employee_card.html' with e=e %}
+    {% empty %}
+      <div class="text-muted">No employees are assigned to this department yet.</div>
+    {% endfor %}
+  </div>
+
+  <div id="dept-emp-empty" class="text-center text-muted py-4" style="display:none">
+    No employees match your search.
+  </div>
+</div></div>

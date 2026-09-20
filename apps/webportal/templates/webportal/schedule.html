@@ -1,0 +1,66 @@
+{% extends 'webportal/base.html' %}
+{% block title %}Schedule{% endblock %}
+{% block heading %}Schedule Settings{% endblock %}
+{% block content %}
+<div class="card mb-3">
+  <div class="card-head"><span><i class="bi bi-building me-1"></i> Global Default <span class="text-muted fw-normal small">· institution-wide</span></span></div>
+  <div class="card-pad">
+    <form method="post" action="{% url 'webportal:schedule' %}">
+      {% csrf_token %}
+      <div class="row g-3 align-items-end">
+        {% for field in global_form %}
+          {% if field.name == 'workdays' %}
+            <div class="col-12">
+              <label class="form-label small">Workdays</label>
+              {% include 'webportal/partials/workday_toggles.html' with field=field idprefix='g-wd' %}
+            </div>
+          {% else %}
+            <div class="col-6 col-md-4 col-lg-2">
+              <label class="form-label small">{{ field.label }}</label>
+              {{ field }}
+              {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <button class="btn btn-primary btn-sm mt-3"><i class="bi bi-check-lg"></i> Save global schedule</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <span><i class="bi bi-person-gear me-1"></i> Per-employee overrides
+      <span class="text-muted fw-normal small">· blank fields inherit the global</span></span>
+    <input id="sched-search" class="form-control form-control-sm" style="max-width:220px"
+           placeholder="Search employee…" autocomplete="off">
+  </div>
+  <div class="card-pad" id="emp-schedule-list"
+       hx-get="{% url 'webportal:employee_schedule_list' %}"
+       hx-trigger="load, refreshList from:body" hx-target="#emp-schedule-list">
+    <div class="text-muted">Loading…</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  function filter() {
+    var q = ((document.getElementById('sched-search') || {}).value || '').trim().toLowerCase();
+    var shown = 0;
+    document.querySelectorAll('.sched-card').forEach(function (c) {
+      var vis = !q || c.dataset.search.indexOf(q) !== -1;
+      c.style.display = vis ? '' : 'none';
+      if (vis) shown++;
+    });
+    var empty = document.getElementById('sched-empty');
+    if (empty) empty.style.display = shown ? 'none' : '';
+  }
+  document.addEventListener('input', function (e) { if (e.target.id === 'sched-search') filter(); });
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    if (e.detail.target && e.detail.target.id === 'emp-schedule-list') filter();
+  });
+})();
+</script>
+{% endblock %}

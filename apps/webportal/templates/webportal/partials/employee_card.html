@@ -1,0 +1,14 @@
+{% comment %}One employee card. Usage: {% include 'webportal/partials/employee_card.html' with e=e %}{% endcomment %}
+<a class="emp-card" href="{% url 'webportal:employee_detail' e.id %}"
+   data-search="{{ e.full_name|lower }} {{ e.employee_no|lower }}"
+   data-dept="{{ e.department_id }}"
+   data-type="{{ e.employment_type }}"
+   data-status="{% if e.is_active %}active{% else %}inactive{% endif %}">
+  {% if not e.is_active %}<span class="emp-card-flag badge-status s-neutral">Inactive</span>{% endif %}
+  {% include 'webportal/partials/avatar.html' with emp=e size='lg' %}
+  <div class="emp-card-name">{{ e.full_name }}</div>
+  <div class="emp-card-no">{{ e.employee_no }}</div>
+  <div class="emp-card-dept"><i class="bi bi-diagram-3"></i> {{ e.department.name }}</div>
+  <span class="badge-status {% if e.is_fulltime %}s-ot{% else %}s-half{% endif %} mt-1">
+    {% if e.is_fulltime %}Full-time{% else %}Part-time{% endif %}</span>
+</a>

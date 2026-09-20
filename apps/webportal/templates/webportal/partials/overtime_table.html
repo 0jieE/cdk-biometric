@@ -1,0 +1,21 @@
+<table id="dt-overtime" class="table js-dt" data-dt-order='[[0,"desc"]]' style="width:100%">
+  <thead><tr>
+    <th>Date</th><th>Employee</th><th>OT Start</th><th>Expected End</th>
+    <th>Computed OT</th><th>Approved By</th><th class="text-end">Actions</th></tr></thead>
+  <tbody>
+  {% for a in rows %}
+    <tr>
+      <td data-order="{{ a.date|date:'Y-m-d' }}">{{ a.date|date:"M d, Y" }}</td>
+      <td>{{ a.employee.full_name }} <span class="text-muted small">({{ a.employee.employee_no }})</span></td>
+      <td>{{ a.ot_start|time:"H:i" }}</td>
+      <td>{{ a.ot_end_expected|time:"H:i"|default:"—" }}</td>
+      <td>{% if a.computed_minutes is not None %}<span class="badge-status s-ot">{{ a.computed_minutes }} min</span>{% else %}<span class="text-muted small">no OT punches yet</span>{% endif %}</td>
+      <td>{{ a.approved_by.username|default:"—" }}</td>
+      <td class="text-end">
+        <button class="btn btn-outline-danger btn-sm" hx-post="{% url 'webportal:overtime_revoke' a.id %}"
+                hx-confirm="Revoke this authorization? OT for the day recomputes to zero."><i class="bi bi-x-circle"></i> Revoke</button>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
