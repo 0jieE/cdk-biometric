@@ -46,8 +46,19 @@ nginx/default.conf            # reverse proxy, serves /static/ + /media/
 From the repo root (`backend/`, where the compose files live):
 
 ```bash
-docker compose up --build
+docker compose build web
+docker compose up -d
 ```
+
+`celery_worker`, `celery_beat`, and `attendance_listener` all reuse the image
+`web` builds (`image: biometric-backend:latest`, no `build:` of their own) —
+building it explicitly first, as its own step, guarantees it exists locally
+before anything tries to start, on every Compose version. Skipping straight to
+`docker compose up --build` usually works too (recent Compose builds `web`
+before starting anything else), but on some older Compose builds this can
+lose the race and try to **pull** `biometric-backend` from Docker Hub instead
+— which fails with `pull access denied` (it only exists locally, never
+pushed anywhere). If you hit that, the two-step form above always fixes it.
 
 This builds the `web` image and starts all six services. On **first boot** the
 `web` entrypoint:
