@@ -6,9 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Live Attendance · CKC</title>
   <link rel="icon" href="{% static 'webportal/img/logo.png' %}">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="{% static 'webportal/vendor/fonts/fonts.css' %}" rel="stylesheet">
+  <link href="{% static 'webportal/vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
   <link href="{% static 'webportal/css/portal.css' %}" rel="stylesheet">
 </head>
 <body>
@@ -40,7 +39,7 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.12/dist/htmx.min.js"></script>
+  <script src="{% static 'webportal/vendor/htmx/htmx.min.js' %}"></script>
   <script>
     (function () {
       var t = document.getElementById('k-time'),
