@@ -130,6 +130,7 @@
               {% if r.day_status == 'PRESENT' %}<span class="badge-status s-present">Present</span>
               {% elif r.day_status == 'LATE' %}<span class="badge-status s-late">Late</span>
               {% elif r.day_status == 'HALF_DAY' %}<span class="badge-status s-half">Half day</span>
+              {% elif r.day_status == 'PENDING' %}<span class="badge-status s-neutral">In progress</span>
               {% else %}<span class="badge-status s-absent">Absent</span>{% endif %}
             </td>
           </tr>

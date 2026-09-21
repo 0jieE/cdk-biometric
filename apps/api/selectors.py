@@ -16,6 +16,7 @@ from datetime import datetime, time, timedelta
 from django.utils import timezone
 
 from apps.attendance.models import Absence, AttendanceLog, Lates, Overtime, Undertime
+from apps.attendance.services import session_is_open
 from apps.attendance.tracking import tracking_start
 from apps.organization.models import Holiday
 from apps.organization.schedule import get_effective_schedule
@@ -24,6 +25,7 @@ DAY_PRESENT = 'PRESENT'
 DAY_LATE = 'LATE'
 DAY_HALF = 'HALF_DAY'
 DAY_ABSENT = 'ABSENT'
+DAY_PENDING = 'PENDING'   # today, time out not reached yet - not judged
 
 
 def _reduce_logs(logs):
@@ -92,16 +94,16 @@ def build_daily_attendance(employee, start: date_cls, end: date_cls) -> list[dic
         if include and not is_holiday:
             if employee.is_fulltime:
                 records.append(_fulltime_record(
-                    day, day_logs, lates, undertimes, overtime))
+                    day, day_logs, lates, undertimes, overtime, sched))
             else:
-                records.append(_parttime_record(day, day_logs))
+                records.append(_parttime_record(day, day_logs, sched))
         day += timedelta(days=1)
 
     return records
 
 
-def _fulltime_record(day, day_logs, lates, undertimes, overtime) -> dict:
-    def session(prefix, name):
+def _fulltime_record(day, day_logs, lates, undertimes, overtime, sched) -> dict:
+    def session(prefix, name, sched_out):
         in_dt = day_logs.get(f'{prefix}_IN')
         out_dt = day_logs.get(f'{prefix}_OUT')
         minutes = lates.get((day, name), 0)
@@ -111,7 +113,8 @@ def _fulltime_record(day, day_logs, lates, undertimes, overtime) -> dict:
         # an Absence row, which is missing for any day the daily job never ran
         # (that used to make a day with no punches at all read as PRESENT).
         if in_dt is None or out_dt is None:
-            status = DAY_ABSENT
+            # ...but not before the session's scheduled time out has been reached.
+            status = DAY_PENDING if session_is_open(day, sched_out) else DAY_ABSENT
         elif minutes > 0:
             status = DAY_LATE
         else:
@@ -119,12 +122,14 @@ def _fulltime_record(day, day_logs, lates, undertimes, overtime) -> dict:
         return {'in': in_dt, 'out': out_dt, 'status': status,
                 'minutes_late': minutes, 'minutes_undertime': under}
 
-    am = session('AM', 'AM')
-    pm = session('PM', 'PM')
-    present = sum(1 for s in (am, pm) if s['status'] != DAY_ABSENT)
+    am = session('AM', 'AM', sched.am_out)
+    pm = session('PM', 'PM', sched.pm_out)
+    present = sum(1 for s in (am, pm) if s['status'] in (DAY_PRESENT, DAY_LATE))
     any_late = am['status'] == DAY_LATE or pm['status'] == DAY_LATE
 
-    if present == 2:
+    if DAY_PENDING in (am['status'], pm['status']):
+        day_status = DAY_PENDING
+    elif present == 2:
         day_status = DAY_LATE if any_late else DAY_PRESENT
     elif present == 1:
         day_status = DAY_HALF
@@ -145,7 +150,7 @@ def _fulltime_record(day, day_logs, lates, undertimes, overtime) -> dict:
     }
 
 
-def _parttime_record(day, day_logs) -> dict:
+def _parttime_record(day, day_logs, sched) -> dict:
     """Present only with both IN and OUT (process_day's rule), decided from the
     punches: one punch => incomplete (missing the other side), none => plain
     absent."""
@@ -155,6 +160,12 @@ def _parttime_record(day, day_logs) -> dict:
         return {
             'date': day, 'employee_type': 'PART_TIME',
             'in': in_dt, 'out': out_dt, 'day_status': DAY_PRESENT,
+            'incomplete': False, 'missing': None,
+        }
+    if session_is_open(day, sched.pm_out):
+        return {
+            'date': day, 'employee_type': 'PART_TIME',
+            'in': in_dt, 'out': out_dt, 'day_status': DAY_PENDING,
             'incomplete': False, 'missing': None,
         }
     missing = 'OUT' if in_dt is not None else 'IN' if out_dt is not None else None

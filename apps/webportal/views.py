@@ -224,7 +224,8 @@ def _fmt_t(dt):
 
 def _status_badge(status):
     m = {'PRESENT': ('s-present', 'PRESENT'), 'LATE': ('s-late', 'LATE'),
-         'HALF_DAY': ('s-half', 'HALF DAY'), 'ABSENT': ('s-absent', 'ABSENT')}
+         'HALF_DAY': ('s-half', 'HALF DAY'), 'ABSENT': ('s-absent', 'ABSENT'),
+         'PENDING': ('s-neutral', 'IN PROGRESS')}
     cls, label = m.get(status, ('s-neutral', status))
     return f'<span class="badge-status {cls}">{label}</span>'
 

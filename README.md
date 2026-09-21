@@ -144,7 +144,7 @@ return **only the requesting employee's own data**.
 | POST   | `/me/photo/`                  | Upload/replace the profile photo (`multipart/form-data`, field `photo`; `PUT` also works) |
 | POST   | `/me/password/`               | Change password (`old_password`, `new_password`); returns fresh tokens |
 | POST   | `/me/username/`               | Change username (`username`, `current_password`); `PUT`/`PATCH` also work |
-| GET    | `/attendance/?start=&end=`    | Per-day record (AM/PM sessions, or IN/OUT for part-time) with `day_status` `PRESENT`/`LATE`/`HALF_DAY`/`ABSENT` |
+| GET    | `/attendance/?start=&end=`    | Per-day record (AM/PM sessions, or IN/OUT for part-time) with `day_status` `PRESENT`/`LATE`/`HALF_DAY`/`ABSENT`, or `PENDING` for today while a session's scheduled time out hasn't been reached (session `status` can be `PENDING` too) |
 | GET    | `/attendance/summary/?month=` | Monthly present / late / half-day / absent counts + late/undertime/lost/overtime minutes (`month=YYYY-MM`) |
 | GET    | `/notifications/`             | The employee's notifications                              |
 | POST   | `/devices/register/`          | Register/update an FCM token (`fcm_token`, `platform`)    |

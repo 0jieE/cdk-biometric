@@ -8,6 +8,7 @@ _DAY_STATUS = {
     'LATE': ('bg-warning text-dark', 'LATE'),
     'HALF_DAY': ('bg-info text-dark', 'HALF DAY'),
     'ABSENT': ('bg-danger', 'ABSENT'),
+    'PENDING': ('bg-secondary', 'IN PROGRESS'),
     'REST': ('bg-light text-dark', 'REST'),
 }
 

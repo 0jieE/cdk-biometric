@@ -44,6 +44,18 @@ STATUS_LATE = 'LATE'
 STATUS_HALF_DAY = 'HALF_DAY'
 STATUS_ABSENT = 'ABSENT'
 STATUS_REST = 'REST'       # non-workday / holiday — nothing derived
+STATUS_PENDING = 'PENDING' # today, a session's time out hasn't been reached yet
+
+
+def session_is_open(target_date: date_cls, sched_out: time, now=None) -> bool:
+    """True while a session can still be completed: its day is today and the
+    scheduled time out has not been reached (or the day is still ahead). An open,
+    incomplete session is undecided - never absent, never 'missing a punch'."""
+    now = timezone.localtime(now) if now else timezone.localtime()
+    today = now.date()
+    if target_date != today:
+        return target_date > today
+    return now.time() < sched_out
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +289,7 @@ def _day_logs(employee, target_date: date_cls) -> dict:
 
 
 @transaction.atomic
-def process_day(employee, target_date: date_cls) -> dict:
+def process_day(employee, target_date: date_cls, now=None) -> dict:
     """Recompute all derived rows (Lates/Absence/Overtime) for one (employee,
     date). Idempotent: clears the day first, then recomputes."""
     sched = get_effective_schedule(employee)
@@ -297,13 +309,14 @@ def process_day(employee, target_date: date_cls) -> dict:
 
     logs = _day_logs(employee, target_date)
     if employee.is_fulltime:
-        return _process_fulltime(employee, target_date, sched, logs)
-    return _process_parttime(employee, target_date, logs)
+        return _process_fulltime(employee, target_date, sched, logs, now)
+    return _process_parttime(employee, target_date, logs, sched.pm_out, now)
 
 
-def _process_fulltime(employee, target_date, sched, logs) -> dict:
+def _process_fulltime(employee, target_date, sched, logs, now=None) -> dict:
     lates = undertimes = absences = 0
     sessions_present = 0
+    pending = False
     late_flag = False
 
     for session, in_type, out_type, sched_in, sched_out in (
@@ -332,6 +345,8 @@ def _process_fulltime(employee, target_date, sched, logs) -> dict:
                     employee=employee, date=target_date, session=session,
                     attendance_log=out_log, minutes_undertime=under)
                 undertimes += 1
+        elif session_is_open(target_date, sched_out, now):
+            pending = True   # time out not reached yet: nothing to judge
         else:
             # Missing session -> absence (half-day if the other session is present).
             if in_log and not out_log:
@@ -345,7 +360,9 @@ def _process_fulltime(employee, target_date, sched, logs) -> dict:
                 reason=reason, incomplete=incomplete)
             absences += 1
 
-    if sessions_present == 2:
+    if pending:
+        status = STATUS_PENDING
+    elif sessions_present == 2:
         status = STATUS_LATE if late_flag else STATUS_PRESENT
     elif sessions_present == 1:
         status = STATUS_HALF_DAY
@@ -381,12 +398,18 @@ def _compute_overtime(employee, target_date, logs) -> int:
     return 1
 
 
-def _process_parttime(employee, target_date, logs) -> dict:
+def _process_parttime(employee, target_date, logs, day_out, now=None) -> dict:
     in_log = logs.get('IN')
     out_log = logs.get('OUT')
 
     if in_log and out_log:
         return {'status': STATUS_PRESENT, 'lates': 0, 'undertimes': 0,
+                'absences': 0, 'overtime': 0}
+
+    # Part-timers have no per-session schedule: the day is undecided until the
+    # end of the working day (the schedule's last time out).
+    if session_is_open(target_date, day_out, now):
+        return {'status': STATUS_PENDING, 'lates': 0, 'undertimes': 0,
                 'absences': 0, 'overtime': 0}
 
     if in_log or out_log:
