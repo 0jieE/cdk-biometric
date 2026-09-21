@@ -182,6 +182,13 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': False,
     'AUTH_HEADER_TYPES': ('Bearer',),
+    # Tolerate small clock skew. Docker Desktop's VM clock is periodically
+    # re-synced (it can step BACKWARDS ~1s), so a token issued a moment ago can
+    # look "issued in the future" to the same server and be rejected as
+    # "Token is invalid" — a random forced logout in the mobile app. With no
+    # leeway, even 1s of skew is fatal. 60s is negligible against the 60-minute
+    # access-token lifetime.
+    'LEEWAY': 60,
 }
 
 

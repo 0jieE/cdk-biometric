@@ -1,5 +1,9 @@
 from datetime import date, datetime, time
 
+import time as time_module
+
+import jwt
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -119,6 +123,29 @@ class ApiAttendanceTests(TestCase):
 
     def test_health_public(self):
         self.assertEqual(APIClient().get('/api/v1/health/').status_code, 200)
+
+    def _client_with_token_issued(self, seconds_from_now):
+        """A client whose access token claims it was issued `seconds_from_now`
+        seconds from the server's clock (positive = in the 'future')."""
+        now = int(time_module.time())
+        token = jwt.encode(
+            {'token_type': 'access', 'exp': now + 3600, 'iat': now + seconds_from_now,
+             'jti': 'skewtest', 'user_id': self.user_a.id},
+            settings.SECRET_KEY, algorithm='HS256')
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return client
+
+    def test_token_tolerates_small_clock_skew(self):
+        # Docker Desktop's VM clock can step back ~1s, making a just-issued token
+        # look "issued in the future". With no leeway that was a random logout.
+        for skew in (1, 30):
+            resp = self._client_with_token_issued(skew).get('/api/v1/me/')
+            self.assertEqual(resp.status_code, 200, f'{skew}s skew rejected')
+
+    def test_token_far_in_the_future_still_rejected(self):
+        resp = self._client_with_token_issued(600).get('/api/v1/me/')
+        self.assertEqual(resp.status_code, 401)
 
     @override_settings(ATTENDANCE_START_DATE='2026-08-01')
     def test_real_punches_shown_even_before_tracking_start(self):
