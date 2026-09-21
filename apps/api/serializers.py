@@ -30,6 +30,10 @@ class AttendanceSummarySerializer(serializers.Serializer):
     half_day = serializers.IntegerField()
     absent = serializers.IntegerField()
     overtime_minutes = serializers.IntegerField()
+    # Computed by monthly_summary all along, but never exposed until now.
+    late_minutes = serializers.IntegerField()
+    undertime_minutes = serializers.IntegerField()
+    lost_minutes = serializers.IntegerField()
 
 
 class NotificationSerializer(serializers.ModelSerializer):

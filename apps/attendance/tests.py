@@ -1,8 +1,10 @@
 """Phase 8 attendance logic tests."""
 
 from datetime import date, datetime, time
+from io import StringIO
 
-from django.test import TestCase
+from django.core.management import call_command
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.attendance.models import (
@@ -22,7 +24,8 @@ from apps.attendance.services import (
     process_day,
 )
 from apps.devices.clients import RawPunch
-from apps.organization.models import Department, Employee, GlobalSchedule
+from apps.notifications.models import Notification
+from apps.organization.models import Department, Employee, GlobalSchedule, Holiday
 
 WORKDAY = date(2026, 7, 6)   # Monday
 
@@ -177,6 +180,57 @@ class AfterHoursIngestionTests(_FullTimeBase):
         pm_absence = Absence.objects.get(employee=self.emp, date=WORKDAY, session='PM')
         self.assertEqual(pm_absence.reason, Absence.Reason.MISSING_IN)
         self.assertTrue(pm_absence.incomplete)
+
+
+class BackfillCommandTests(_FullTimeBase):
+    """`backfill_attendance` fills in the derived rows for days the daily job
+    never ran (stack down), without notifying anyone about old days."""
+
+    SINCE, UNTIL = date(2026, 7, 6), date(2026, 7, 7)   # Mon, Tue
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        Employee.objects.update(created_at=aware(date(2026, 6, 1), time(9, 0)))
+
+    def _run(self, **kw):
+        out = StringIO()
+        call_command('backfill_attendance', stdout=out, **kw)
+        return out.getvalue()
+
+    @override_settings(ATTENDANCE_START_DATE='2026-07-01')
+    def test_creates_absences_for_unprocessed_days_and_is_idempotent(self):
+        self.assertEqual(Absence.objects.count(), 0)
+        self._run(since='2026-07-06', until='2026-07-07')
+        # 2 workdays x (AM + PM) for the one employee.
+        self.assertEqual(Absence.objects.filter(employee=self.emp).count(), 4)
+        self._run(since='2026-07-06', until='2026-07-07')
+        self.assertEqual(Absence.objects.filter(employee=self.emp).count(), 4)
+
+    @override_settings(ATTENDANCE_START_DATE='2026-07-01')
+    def test_skips_holidays(self):
+        Holiday.objects.create(date=date(2026, 7, 7), name='Test Holiday')
+        self._run(since='2026-07-06', until='2026-07-07')
+        self.assertEqual(
+            list(Absence.objects.values_list('date', flat=True).distinct()),
+            [date(2026, 7, 6)])
+
+    @override_settings(ATTENDANCE_START_DATE='2026-07-01')
+    def test_sends_no_notifications(self):
+        self._run(since='2026-07-06', until='2026-07-07')
+        self.assertEqual(Notification.objects.count(), 0)
+
+    @override_settings(ATTENDANCE_START_DATE='2026-07-01')
+    def test_dry_run_changes_nothing(self):
+        text = self._run(since='2026-07-06', until='2026-07-07', dry_run=True)
+        self.assertIn('Would process 2 employee-day', text)
+        self.assertEqual(Absence.objects.count(), 0)
+
+    def test_never_before_the_employee_existed(self):
+        Employee.objects.update(created_at=aware(date(2026, 7, 7), time(9, 0)))
+        self._run(since='2026-07-06', until='2026-07-07')
+        self.assertEqual(
+            set(Absence.objects.values_list('date', flat=True)), {date(2026, 7, 7)})
 
 
 class UndertimeProcessTests(_FullTimeBase):

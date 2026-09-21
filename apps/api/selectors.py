@@ -16,6 +16,7 @@ from datetime import datetime, time, timedelta
 from django.utils import timezone
 
 from apps.attendance.models import Absence, AttendanceLog, Lates, Overtime, Undertime
+from apps.attendance.tracking import tracking_start
 from apps.organization.models import Holiday
 from apps.organization.schedule import get_effective_schedule
 
@@ -72,6 +73,11 @@ def build_daily_attendance(employee, start: date_cls, end: date_cls) -> list[dic
     holidays = set(
         Holiday.objects.filter(date__gte=start, date__lte=end).values_list('date', flat=True))
 
+    # A workday with no data at all is only *inferred* absent once tracking had
+    # begun — before that nobody was being recorded, so there is nothing to say.
+    # (Days with real punches/rows are always shown, whatever the start date.)
+    first_tracked = tracking_start(employee)
+
     records = []
     day = start
     while day <= end:
@@ -81,26 +87,30 @@ def build_daily_attendance(employee, start: date_cls, end: date_cls) -> list[dic
         has_data = bool(day_logs) or any(k[0] == day for k in absences) or any(
             k[0] == day for k in lates)
 
-        include = has_data or (is_workday and not is_holiday and day <= today)
+        include = has_data or (
+            is_workday and not is_holiday and first_tracked <= day <= today)
         if include and not is_holiday:
             if employee.is_fulltime:
                 records.append(_fulltime_record(
-                    day, day_logs, lates, undertimes, absences, overtime))
+                    day, day_logs, lates, undertimes, overtime))
             else:
-                records.append(_parttime_record(day, day_logs, absences))
+                records.append(_parttime_record(day, day_logs))
         day += timedelta(days=1)
 
     return records
 
 
-def _fulltime_record(day, day_logs, lates, undertimes, absences, overtime) -> dict:
+def _fulltime_record(day, day_logs, lates, undertimes, overtime) -> dict:
     def session(prefix, name):
         in_dt = day_logs.get(f'{prefix}_IN')
         out_dt = day_logs.get(f'{prefix}_OUT')
-        absent = (day, name) in absences
         minutes = lates.get((day, name), 0)
         under = undertimes.get((day, name), 0)
-        if absent:
+        # Same rule process_day applies: a session counts only with BOTH punches.
+        # Decided from the punches themselves — never from the mere *absence* of
+        # an Absence row, which is missing for any day the daily job never ran
+        # (that used to make a day with no punches at all read as PRESENT).
+        if in_dt is None or out_dt is None:
             status = DAY_ABSENT
         elif minutes > 0:
             status = DAY_LATE
@@ -135,25 +145,23 @@ def _fulltime_record(day, day_logs, lates, undertimes, absences, overtime) -> di
     }
 
 
-def _parttime_record(day, day_logs, absences) -> dict:
+def _parttime_record(day, day_logs) -> dict:
+    """Present only with both IN and OUT (process_day's rule), decided from the
+    punches: one punch => incomplete (missing the other side), none => plain
+    absent."""
     in_dt = day_logs.get('IN')
     out_dt = day_logs.get('OUT')
-    ab = absences.get((day, 'FULL'))
-    if ab is not None:
-        missing = None
-        if ab.reason == Absence.Reason.MISSING_IN:
-            missing = 'IN'
-        elif ab.reason == Absence.Reason.MISSING_OUT:
-            missing = 'OUT'
+    if in_dt is not None and out_dt is not None:
         return {
             'date': day, 'employee_type': 'PART_TIME',
-            'in': in_dt, 'out': out_dt, 'day_status': DAY_ABSENT,
-            'incomplete': ab.incomplete, 'missing': missing,
+            'in': in_dt, 'out': out_dt, 'day_status': DAY_PRESENT,
+            'incomplete': False, 'missing': None,
         }
+    missing = 'OUT' if in_dt is not None else 'IN' if out_dt is not None else None
     return {
         'date': day, 'employee_type': 'PART_TIME',
-        'in': in_dt, 'out': out_dt, 'day_status': DAY_PRESENT,
-        'incomplete': False, 'missing': None,
+        'in': in_dt, 'out': out_dt, 'day_status': DAY_ABSENT,
+        'incomplete': missing is not None, 'missing': missing,
     }
 
 

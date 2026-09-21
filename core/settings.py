@@ -212,6 +212,10 @@ ZK_DEVICE_IP = env('ZK_DEVICE_IP', default='192.168.1.201')
 ZK_DEVICE_PORT = env('ZK_DEVICE_PORT')
 ZK_DEVICE_TIMEOUT = env('ZK_DEVICE_TIMEOUT')
 
+# First day real attendance was recorded (YYYY-MM-DD). Days before it are never
+# reported present/absent. Blank => auto (day of the earliest recorded punch).
+ATTENDANCE_START_DATE = env('ATTENDANCE_START_DATE', default='')
+
 # Admin password used by the seed_data command (printed on seed).
 ADMIN_PASSWORD = env('ADMIN_PASSWORD', default='admin12345')
 

@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -119,3 +119,89 @@ class ApiAttendanceTests(TestCase):
 
     def test_health_public(self):
         self.assertEqual(APIClient().get('/api/v1/health/').status_code, 200)
+
+    @override_settings(ATTENDANCE_START_DATE='2026-08-01')
+    def test_real_punches_shown_even_before_tracking_start(self):
+        # The start date only limits *inferred* days; recorded punches always show.
+        resp = self._login('alice').get(f'/api/v1/attendance/?start={D}&end={D}')
+        self.assertEqual(resp.data['count'], 1)
+        self.assertEqual(resp.data['results'][0]['day_status'], 'PRESENT')
+
+
+@override_settings(ATTENDANCE_START_DATE='2026-07-01')
+class NoPunchInferenceTests(TestCase):
+    """A workday with no punches must read ABSENT — never PRESENT just because
+    no Absence row exists (the daily job never ran for it) — and days before
+    tracking began must not be reported at all."""
+
+    NO_PUNCH_DAY = date(2026, 7, 7)   # Tuesday, after the start date, no punches
+    BEFORE_START = date(2026, 6, 30)  # Tuesday, before the start date
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.full = Employee.objects.create(
+            employee_no='EMP-F', first_name='Fay', last_name='F',
+            department=dept, biometric_id='3001', is_fulltime=True)
+        cls.part = Employee.objects.create(
+            employee_no='EMP-P', first_name='Pat', last_name='P',
+            department=dept, biometric_id='3002', is_fulltime=False)
+        # created_at is auto_now_add; backdate so they existed before the range.
+        Employee.objects.update(created_at=aware(date(2026, 6, 1), time(9, 0)))
+        for name, emp in (('fay', cls.full), ('pat', cls.part)):
+            u = User.objects.create(username=name, role=User.Roles.EMPLOYEE, employee=emp)
+            u.set_password(PASSWORD)
+            u.save()
+
+    def _get(self, username, start, end):
+        client = APIClient()
+        token = client.post('/api/v1/auth/login/',
+                            {'username': username, 'password': PASSWORD},
+                            format='json').data['access']
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return client.get(f'/api/v1/attendance/?start={start}&end={end}')
+
+    def test_fulltime_workday_without_punches_is_absent(self):
+        rec = self._get('fay', self.NO_PUNCH_DAY, self.NO_PUNCH_DAY).data['results'][0]
+        self.assertEqual(rec['day_status'], 'ABSENT')
+        self.assertEqual(rec['am']['status'], 'ABSENT')
+        self.assertEqual(rec['pm']['status'], 'ABSENT')
+        self.assertIsNone(rec['am']['in'])
+
+    def test_parttime_workday_without_punches_is_absent_not_incomplete(self):
+        rec = self._get('pat', self.NO_PUNCH_DAY, self.NO_PUNCH_DAY).data['results'][0]
+        self.assertEqual(rec['day_status'], 'ABSENT')
+        self.assertFalse(rec['incomplete'])
+        self.assertIsNone(rec['missing'])
+
+    def test_days_before_tracking_start_are_not_reported(self):
+        for who in ('fay', 'pat'):
+            resp = self._get(who, self.BEFORE_START, self.BEFORE_START)
+            self.assertEqual(resp.data['count'], 0, who)
+
+    def test_weekend_is_not_inferred_absent(self):
+        saturday = date(2026, 7, 11)
+        self.assertEqual(self._get('fay', saturday, saturday).data['count'], 0)
+
+    def test_summary_counts_absent_days_and_exposes_minute_fields(self):
+        client = APIClient()
+        token = client.post('/api/v1/auth/login/',
+                            {'username': 'fay', 'password': PASSWORD},
+                            format='json').data['access']
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        data = client.get('/api/v1/attendance/summary/?month=2026-07').data
+        # July 2026 has 23 weekdays, all after the start date, none with punches.
+        self.assertEqual(data['absent'], 23)
+        self.assertEqual(data['present'], 0)
+        for key in ('late_minutes', 'undertime_minutes', 'lost_minutes'):
+            self.assertIn(key, data)
+
+    def test_month_before_tracking_start_is_empty(self):
+        client = APIClient()
+        token = client.post('/api/v1/auth/login/',
+                            {'username': 'fay', 'password': PASSWORD},
+                            format='json').data['access']
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        data = client.get('/api/v1/attendance/summary/?month=2026-06').data
+        self.assertEqual((data['present'], data['late'], data['absent']), (0, 0, 0))

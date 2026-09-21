@@ -76,10 +76,16 @@ env/Scripts/python.exe manage.py migrate
 env/Scripts/python.exe manage.py seed_data
 ```
 
-Creates 3 departments, 8 employees (each with an EMPLOYEE user, a `biometric_id`,
-and an `AttendanceConfig`), the `admin` superuser, one `BiometricDevice`, and a
-few holidays (including one in the current month). Prints the admin + a sample
-employee credential.
+Creates 3 departments, 10 demo employees (each with an EMPLOYEE user and a
+`biometric_id`), the `admin` superuser, one `BiometricDevice`, the two
+fixed-date national holidays, and the periodic sync tasks. Prints the admin + a
+sample employee credential.
+
+It deliberately seeds **nothing that changes how real punches are counted** — no
+invented holidays, no overtime authorizations. (It runs on every container start,
+and an older version added a fake "Foundation Day" holiday for every month it ran
+in, plus an example OT authorization for every day it ran on. If your database
+was seeded by that version, clean it once — see *Attendance data repair* below.)
 
 ### 5. Sync attendance from the mock device
 
@@ -131,15 +137,22 @@ return **only the requesting employee's own data**.
 
 | Method | Path                          | Purpose                                                   |
 |--------|-------------------------------|-----------------------------------------------------------|
+| GET    | `/health/`                    | Public liveness check (no auth)                           |
 | POST   | `/auth/login/`                | Obtain access + refresh tokens                            |
 | POST   | `/auth/refresh/`              | Refresh an access token                                   |
 | GET    | `/me/`                        | Employee profile                                          |
-| GET    | `/attendance/?start=&end=`    | Paired IN/OUT per day + `ON_TIME`/`LATE`/`ABSENT` status  |
-| GET    | `/attendance/summary/?month=` | Monthly present / late / absent counts (`month=YYYY-MM`)  |
+| GET    | `/attendance/?start=&end=`    | Per-day record (AM/PM sessions, or IN/OUT for part-time) with `day_status` `PRESENT`/`LATE`/`HALF_DAY`/`ABSENT` |
+| GET    | `/attendance/summary/?month=` | Monthly present / late / half-day / absent counts + late/undertime/lost/overtime minutes (`month=YYYY-MM`) |
 | GET    | `/notifications/`             | The employee's notifications                              |
 | POST   | `/devices/register/`          | Register/update an FCM token (`fcm_token`, `platform`)    |
 
 `/attendance/` and `/notifications/` are paginated (`PAGE_SIZE = 25`).
+
+**How a day's status is decided:** from the punches themselves — a session (or a
+part-time day) counts only with **both** an IN and an OUT. A workday with no
+punches is `ABSENT`; it is never assumed `PRESENT`. Days before attendance
+tracking began (see `ATTENDANCE_START_DATE`) are simply not reported, and
+weekends/holidays are skipped.
 
 ### Quick example
 
@@ -325,3 +338,31 @@ Covers (Phase 2): `process_daily_attendance_task` absence flagging + holiday /
 non-workday skips + idempotency; report generators produce valid non-empty XLSX
 (`PK…`) and PDF (`%PDF…`); portal RBAC (employee denied, admin allowed); FCM
 `send_to_employee` no-ops when unconfigured.
+
+---
+
+# Attendance data repair
+
+Derived rows (absences, lates, undertime, overtime) are created live, day by
+day. Two management commands repair a database where that went wrong; both are
+safe to re-run.
+
+```bash
+# 1. One-time: remove fake rows an OLD seed_data left behind (dry run first).
+python manage.py cleanup_seed_artifacts --dry-run
+python manage.py cleanup_seed_artifacts
+
+# 2. Recompute absences etc. for days the stack was down (tracking start -> yesterday).
+python manage.py backfill_attendance --dry-run
+python manage.py backfill_attendance
+python manage.py backfill_attendance --since 2026-09-14 --until 2026-09-20   # explicit range
+```
+
+`backfill_attendance` never sends push notifications about old days. Run it any
+time after an outage. In Docker: `docker compose exec web python manage.py ...`.
+
+**`ATTENDANCE_START_DATE`** (optional env, `YYYY-MM-DD`) — the first day real
+attendance was recorded. Days before it are never reported present/absent or
+backfilled. Left blank it defaults to the day of the earliest recorded punch, so
+it usually needs no setting; set it if a stray early test punch would otherwise
+move the start too far back. Days that have real punches always show.

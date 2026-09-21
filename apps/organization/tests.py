@@ -1,14 +1,18 @@
 """Schedule resolver tests."""
 
 from datetime import date, time
+from io import StringIO
 
+from django.core.management import call_command
 from django.test import TestCase
 
+from apps.attendance.models import OTAuthorization
 from apps.organization.models import (
     Department,
     Employee,
     EmployeeSchedule,
     GlobalSchedule,
+    Holiday,
 )
 from apps.organization.schedule import get_effective_schedule
 
@@ -61,3 +65,70 @@ class ScheduleResolverTests(TestCase):
         emp = self._emp('R-5', '4005')
         sched = get_effective_schedule(emp)
         self.assertEqual(sched.midpoint, time(12, 30))  # midpoint of 12:00 and 13:00
+
+
+class SeedDataTests(TestCase):
+    """seed_data runs on every container start, so it must never create anything
+    that changes how REAL punches are counted."""
+
+    def _seed(self):
+        call_command('seed_data', stdout=StringIO())
+
+    def test_seeds_no_ot_authorizations_or_invented_holidays(self):
+        self._seed()
+        self.assertEqual(OTAuthorization.objects.count(), 0)
+        self.assertFalse(Holiday.objects.filter(name='Foundation Day').exists())
+        # The two genuine fixed-date national holidays are still seeded.
+        self.assertEqual(Holiday.objects.count(), 2)
+
+    def test_reseeding_adds_nothing_new(self):
+        self._seed()
+        counts = (Holiday.objects.count(), OTAuthorization.objects.count(),
+                  Employee.objects.count())
+        self._seed()
+        self.assertEqual(
+            (Holiday.objects.count(), OTAuthorization.objects.count(),
+             Employee.objects.count()), counts)
+
+
+class CleanupSeedArtifactsTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        dept = Department.objects.create(name='IT', code='IT')
+        emp = Employee.objects.create(
+            employee_no='C-1', first_name='C', last_name='C',
+            department=dept, biometric_id='5001')
+        # What the OLD seed left behind...
+        Holiday.objects.create(date=date(2026, 8, 15), name='Foundation Day',
+                               type=Holiday.Types.SPECIAL)
+        OTAuthorization.objects.create(employee=emp, date=date(2026, 9, 14),
+                                       ot_start=time(17, 30),
+                                       note='Seed example authorization')
+        # ...and genuine rows that must survive.
+        Holiday.objects.create(date=date(2026, 12, 30), name='Rizal Day',
+                               type=Holiday.Types.REGULAR)
+        Holiday.objects.create(date=date(2026, 11, 20), name='Foundation Day',
+                               type=Holiday.Types.SPECIAL)   # not the 15th => real
+        OTAuthorization.objects.create(employee=emp, date=date(2026, 9, 15),
+                                       ot_start=time(18, 0), note='Board meeting')
+
+    def _run(self, **kw):
+        call_command('cleanup_seed_artifacts', stdout=StringIO(), **kw)
+
+    def test_dry_run_deletes_nothing(self):
+        self._run(dry_run=True)
+        self.assertEqual(Holiday.objects.count(), 3)
+        self.assertEqual(OTAuthorization.objects.count(), 2)
+
+    def test_removes_only_the_seed_fingerprint(self):
+        self._run()
+        self.assertEqual(
+            set(Holiday.objects.values_list('name', 'date')),
+            {('Rizal Day', date(2026, 12, 30)), ('Foundation Day', date(2026, 11, 20))})
+        self.assertEqual(
+            list(OTAuthorization.objects.values_list('note', flat=True)), ['Board meeting'])
+
+    def test_is_idempotent(self):
+        self._run()
+        self._run()
+        self.assertEqual(Holiday.objects.count(), 2)

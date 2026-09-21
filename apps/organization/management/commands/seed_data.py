@@ -1,11 +1,17 @@
 """Idempotent seed data for Phase 8 development.
 
 Creates the GlobalSchedule, a full-time/part-time employee mix (including a
-Saturday worker and OT-eligible staff), an admin superuser, a biometric device,
-holidays, an example OT authorization, and the periodic sync task.
+Saturday worker), an admin superuser, a biometric device, the two fixed-date
+national holidays, and the periodic sync task.
+
+Deliberately seeds NOTHING that changes how real punches are counted — no
+invented holidays, no overtime authorizations. This runs on every container
+start (SEED_ON_START=true), so anything date-relative it created piled up: a
+fake "Foundation Day" holiday for every month it ran in, and an example OT
+authorization for every day it ran on. Holidays/OT belong to the admin.
 """
 
-from datetime import date, time, timedelta
+from datetime import date, time
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -13,7 +19,6 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from apps.attendance.models import OTAuthorization
 from apps.devices.models import BiometricDevice
 from apps.organization.models import (
     Department,
@@ -57,7 +62,7 @@ class Command(BaseCommand):
     @transaction.atomic
     def handle(self, *args, **options):
         created = {'departments': 0, 'employees': 0, 'users': 0,
-                   'overrides': 0, 'holidays': 0, 'devices': 0, 'ot_auth': 0}
+                   'overrides': 0, 'holidays': 0, 'devices': 0}
 
         # Global schedule (institution default).
         schedule = GlobalSchedule.load()
@@ -76,7 +81,6 @@ class Command(BaseCommand):
             created['departments'] += int(was_created)
 
         # Employees + users (+ Saturday override where flagged)
-        emp_by_no = {}
         for e in EMPLOYEES:
             emp, emp_created = Employee.objects.get_or_create(
                 employee_no=e['no'],
@@ -91,7 +95,6 @@ class Command(BaseCommand):
             if emp.is_fulltime != e['fulltime']:
                 emp.is_fulltime = e['fulltime']
                 emp.save(update_fields=['is_fulltime'])
-            emp_by_no[e['no']] = emp
             created['employees'] += int(emp_created)
 
             if e.get('saturday'):
@@ -130,28 +133,18 @@ class Command(BaseCommand):
                       'is_active': True})
         created['devices'] += int(dev_created)
 
-        # Holidays (one in the current month)
+        # Fixed-date national holidays only. (The rest come from the portal's
+        # holiday import; never invent a holiday relative to "today".)
         today = timezone.localdate()
         holidays = [
             {'date': date(today.year, 1, 1),  'name': "New Year's Day",   'type': Holiday.Types.REGULAR, 'recurring': True},
             {'date': date(today.year, 6, 12), 'name': 'Independence Day', 'type': Holiday.Types.REGULAR, 'recurring': True},
-            {'date': today.replace(day=15),   'name': 'Foundation Day',   'type': Holiday.Types.SPECIAL, 'recurring': False},
         ]
         for h in holidays:
             _, h_created = Holiday.objects.get_or_create(
                 date=h['date'],
                 defaults={'name': h['name'], 'type': h['type'], 'is_recurring': h['recurring']})
             created['holidays'] += int(h_created)
-
-        # Example OT authorization for the OT-eligible Saturday worker (Liza).
-        ot_day = today
-        while ot_day.weekday() >= 5:  # step back to a weekday
-            ot_day -= timedelta(days=1)
-        _, ot_created = OTAuthorization.objects.get_or_create(
-            employee=emp_by_no['EMP-1005'], date=ot_day,
-            defaults={'ot_start': time(17, 30), 'approved_by': admin,
-                      'note': 'Seed example authorization'})
-        created['ot_auth'] += int(ot_created)
 
         self._seed_periodic_sync()
 
@@ -170,7 +163,6 @@ class Command(BaseCommand):
         self.stdout.write(f'  Saturday worker: {", ".join(saturday)} (EmployeeSchedule override)')
         self.stdout.write(f'  OT-eligible in mock: EMP-1005, EMP-1010 (bio % 5 == 0)')
         self.stdout.write(f'  Unauthorized late-leaver: EMP-1001, EMP-1006 (no OT expected)')
-        self.stdout.write(f'  Example OT authorization: EMP-1005 on {ot_day}')
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS('Admin login (web portal / Django admin):'))
         self.stdout.write(f'  username: admin')
