@@ -292,11 +292,26 @@ keeps flowing. You can enable/disable/retune it from Django admin
 
 ## Reports
 
-Four report types (Daily Attendance, Monthly Summary, Tardiness, Absence), each
-in **Excel** (styled/frozen header, auto-width) and **PDF** (institution header +
-timestamp). Files land in `MEDIA_ROOT/reports/` and are served at `/media/` in
-dev. List pages have direct **Export PDF/Excel** buttons; the Reports page runs
-generation **async** via Celery and shows job status with a download link.
+Five report types (Daily Attendance, Monthly Summary, Tardiness, Absence,
+**Employee Attendance**), each in **Excel** (styled/frozen header, auto-width) and
+**PDF** (institution header + timestamp). Files land in `MEDIA_ROOT/reports/` and
+are served at `/media/` in dev. List pages have direct **Export PDF/Excel**
+buttons; the Reports page runs generation **async** via Celery and shows job
+status (and, for per-employee jobs, which employee) with a download link.
+
+**Reports by employee.** Pick an employee on the Reports page:
+
+- **Employee Attendance (DTR)** — one person's daily time record over a date
+  range (default: this month, max 366 days). Lists *every* calendar day: punches
+  and status for worked days, plus `REST` (non-workday), `HOLIDAY` (with its name),
+  `Not tracked` (before attendance tracking began) and `Upcoming`; ends with a
+  TOTAL row (days present/late/half-day/absent and late / undertime / OT / lost
+  minutes). Full-time staff get AM/PM columns, part-time get Time In / Time Out.
+  The file is named `employee_attendance_<employee no>_<timestamp>`. Inactive
+  employees can still be reported (e.g. someone who has left).
+- **Any of the other four reports** can also be limited to one person by choosing
+  an employee (it overrides the department filter). The same `employee=<id>` query
+  parameter works on the direct `/export/` endpoint.
 
 ## FCM
 

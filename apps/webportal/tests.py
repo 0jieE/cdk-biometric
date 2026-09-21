@@ -2,12 +2,15 @@
 
 from datetime import date, time
 
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
 from apps.attendance.models import AttendanceLog, OTAuthorization
 from apps.organization.models import Department, Employee, GlobalSchedule
+from apps.reports.models import ReportJob
 
 User = get_user_model()
 PASSWORD = 'portalpass12345'
@@ -92,3 +95,73 @@ class PortalAccessTests(TestCase):
     def test_live_logs_public_no_login(self):
         self.assertEqual(self.client.get(reverse('webportal:live')).status_code, 200)
         self.assertEqual(self.client.get(reverse('webportal:live_feed')).status_code, 200)
+
+
+class ReportsPageEmployeeTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.emp = Employee.objects.create(
+            employee_no='RP-1', first_name='Rep', last_name='Orted',
+            department=dept, biometric_id='8101', is_fulltime=True)
+        cls.admin = User.objects.create(username='admin2', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+    def setUp(self):
+        self.client.login(username='admin2', password=PASSWORD)
+
+    def test_page_offers_the_new_report_and_an_employee_picker(self):
+        resp = self.client.get(reverse('webportal:reports'))
+        self.assertContains(resp, 'Employee Attendance (DTR)')
+        self.assertContains(resp, 'RP-1 — Rep Orted')
+
+    @patch('apps.webportal.views.generate_report_task')
+    def test_employee_report_requires_an_employee(self, task):
+        resp = self.client.post(reverse('webportal:reports'), {
+            'report_type': 'EMPLOYEE_ATTENDANCE', 'fmt': 'PDF'})
+        self.assertContains(resp, 'Choose an employee for this report.')
+        self.assertFalse(ReportJob.objects.exists())
+        task.delay.assert_not_called()
+
+    @patch('apps.webportal.views.generate_report_task')
+    def test_valid_request_queues_a_job_carrying_the_employee(self, task):
+        resp = self.client.post(reverse('webportal:reports'), {
+            'report_type': 'EMPLOYEE_ATTENDANCE', 'fmt': 'XLSX',
+            'employee': self.emp.id, 'start': '2026-07-01', 'end': '2026-07-31'})
+        # Success is an empty 204 that tells the page to refresh its jobs list.
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(resp['HX-Trigger'], 'refreshJobs')
+        job = ReportJob.objects.get()
+        self.assertEqual(job.report_type, 'EMPLOYEE_ATTENDANCE')
+        self.assertEqual(job.params['employee'], self.emp.id)
+        self.assertEqual(job.params['start'], '2026-07-01')
+        task.delay.assert_called_once_with(job.id)
+
+    @patch('apps.webportal.views.generate_report_task')
+    def test_backwards_date_range_rejected(self, task):
+        resp = self.client.post(reverse('webportal:reports'), {
+            'report_type': 'EMPLOYEE_ATTENDANCE', 'fmt': 'XLSX', 'employee': self.emp.id,
+            'start': '2026-07-31', 'end': '2026-07-01'})
+        self.assertContains(resp, 'End date must be on or after the start date.')
+        self.assertFalse(ReportJob.objects.exists())
+
+    def test_jobs_list_shows_which_employee_a_job_was_for(self):
+        ReportJob.objects.create(report_type='EMPLOYEE_ATTENDANCE', fmt='PDF',
+                                 params={'employee': self.emp.id})
+        resp = self.client.get(reverse('webportal:report_jobs'))
+        self.assertContains(resp, 'RP-1 · Rep Orted')
+
+    def test_direct_export_accepts_the_employee_param(self):
+        resp = self.client.get(reverse('webportal:export'), {
+            'report_type': 'EMPLOYEE_ATTENDANCE', 'fmt': 'XLSX',
+            'employee': self.emp.id, 'start': '2026-07-06', 'end': '2026-07-08'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('employee_attendance_RP-1_', resp['Content-Disposition'])
+        self.assertTrue(resp.content.startswith(b'PK'))
+
+    def test_reports_page_is_admin_only(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse('webportal:reports')).status_code, 302)

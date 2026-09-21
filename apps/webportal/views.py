@@ -875,6 +875,19 @@ def device_test(request, pk):
 # ---------------------------------------------------------------------------
 # Reports
 # ---------------------------------------------------------------------------
+def _recent_jobs():
+    """Latest report jobs, each tagged with the employee it was for. Resolved
+    in ONE query, not one per row — the jobs list re-polls every 3 seconds."""
+    jobs = list(ReportJob.objects.select_related('requested_by')[:25])
+    ids = {int(j.params['employee']) for j in jobs if (j.params or {}).get('employee')}
+    labels = {e.pk: f'{e.employee_no} · {e.full_name}'
+              for e in Employee.objects.filter(pk__in=ids)}
+    for job in jobs:
+        emp_id = (job.params or {}).get('employee')
+        job.employee_label = labels.get(int(emp_id), '') if emp_id else ''
+    return jobs
+
+
 @admin_required
 def reports(request):
     if request.method == 'POST':
@@ -898,15 +911,14 @@ def reports(request):
 
     context = {
         'form': ReportForm(),
-        'jobs': ReportJob.objects.select_related('requested_by')[:25],
+        'jobs': _recent_jobs(),
     }
     return render(request, 'webportal/reports.html', context)
 
 
 @admin_required
 def report_jobs(request):
-    return render(request, 'webportal/partials/report_jobs.html',
-                  {'jobs': ReportJob.objects.select_related('requested_by')[:25]})
+    return render(request, 'webportal/partials/report_jobs.html', {'jobs': _recent_jobs()})
 
 
 @admin_required
@@ -922,7 +934,7 @@ def export_report(request):
     fmt = request.GET.get('fmt', 'XLSX')
     params = {
         k: request.GET.get(k)
-        for k in ('date', 'month', 'start', 'end', 'department')
+        for k in ('date', 'month', 'start', 'end', 'department', 'employee')
         if request.GET.get(k)
     }
     filename, content = build_report(report_type, fmt, params)

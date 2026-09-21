@@ -9,6 +9,7 @@ from apps.organization.models import (
     GlobalSchedule,
     Holiday,
 )
+from apps.reports.generators import MAX_RANGE_DAYS
 from apps.reports.models import ReportJob
 
 WEEKDAYS = [(0, 'Mon'), (1, 'Tue'), (2, 'Wed'), (3, 'Thu'),
@@ -64,18 +65,43 @@ class DeviceForm(BootstrapMixin, forms.ModelForm):
                   'photo', 'is_active')
 
 
+class _EmployeeChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, emp):
+        # Inactive staff stay selectable: a record for someone who left is legit.
+        return f'{emp.employee_no} — {emp.full_name}' + ('' if emp.is_active else ' (inactive)')
+
+
 class ReportForm(BootstrapMixin, forms.Form):
     report_type = forms.ChoiceField(choices=ReportJob.ReportType.choices)
     fmt = forms.ChoiceField(choices=ReportJob.Fmt.choices, label='Format')
     department = forms.ModelChoiceField(
         queryset=Department.objects.all(), required=False, empty_label='All departments')
+    employee = _EmployeeChoiceField(
+        queryset=Employee.objects.order_by('employee_no'), required=False,
+        empty_label='All employees',
+        help_text='Required for Employee Attendance; on the other reports it '
+                  'limits the report to this one person.')
     date = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}),
                            help_text='For Daily Attendance')
     month = forms.CharField(required=False, widget=forms.DateInput(attrs={'type': 'month'}),
                             help_text='For Monthly Summary (YYYY-MM)')
     start = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}),
-                            help_text='For Tardiness / Absence')
+                            help_text='For Tardiness / Absence / Employee Attendance '
+                                      '(default: this month)')
     end = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}))
+
+    def clean(self):
+        cd = super().clean()
+        if (cd.get('report_type') == ReportJob.ReportType.EMPLOYEE_ATTENDANCE
+                and not cd.get('employee')):
+            self.add_error('employee', 'Choose an employee for this report.')
+        start, end = cd.get('start'), cd.get('end')
+        if start and end:
+            if start > end:
+                self.add_error('end', 'End date must be on or after the start date.')
+            elif (end - start).days + 1 > MAX_RANGE_DAYS:
+                self.add_error('end', f'Range is too long (max {MAX_RANGE_DAYS} days).')
+        return cd
 
     def to_params(self) -> dict:
         cd = self.cleaned_data
@@ -90,6 +116,8 @@ class ReportForm(BootstrapMixin, forms.Form):
             params['end'] = cd['end'].isoformat()
         if cd.get('department'):
             params['department'] = cd['department'].id
+        if cd.get('employee'):
+            params['employee'] = cd['employee'].id
         return params
 
 
