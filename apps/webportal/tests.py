@@ -11,6 +11,7 @@ from django.urls import reverse
 from apps.attendance.models import AttendanceLog, OTAuthorization
 from apps.organization.models import Department, Employee, GlobalSchedule
 from apps.reports.models import ReportJob
+from apps.webportal.views import _provision_employee_account
 
 User = get_user_model()
 PASSWORD = 'portalpass12345'
@@ -165,3 +166,42 @@ class ReportsPageEmployeeTests(TestCase):
     def test_reports_page_is_admin_only(self):
         self.client.logout()
         self.assertEqual(self.client.get(reverse('webportal:reports')).status_code, 302)
+
+
+class ProvisionAccountTests(TestCase):
+    """The portal creates an employee's login from their employee number. Employees
+    can now rename themselves, so that default name may already be taken."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        cls.dept = Department.objects.create(name='IT', code='IT')
+
+    def _employee(self, no, bio):
+        return Employee.objects.create(employee_no=no, first_name='New', last_name='Hire',
+                                       department=self.dept, biometric_id=bio)
+
+    def test_a_taken_default_username_gets_a_suffix_instead_of_silently_skipping(self):
+        # Someone already holds "emp-9001". Previously no account was created at all
+        # (and the portal still announced "Login created"), leaving the new hire
+        # unable to sign in with no error anywhere.
+        User.objects.create(username='emp-9001', role=User.Roles.EMPLOYEE)
+        hire = self._employee('EMP-9001', '9001')
+        _provision_employee_account(hire)
+        account = User.objects.get(employee=hire)
+        self.assertEqual(account.username, 'emp-9001-2')
+        self.assertTrue(account.check_password('employee12345'))
+
+    def test_is_idempotent_and_keeps_a_login_the_employee_renamed(self):
+        hire = self._employee('EMP-9002', '9002')
+        _provision_employee_account(hire)
+        User.objects.filter(employee=hire).update(username='custom.name')
+        _provision_employee_account(hire)              # e.g. an admin clicks "Create login"
+        self.assertEqual(User.objects.filter(employee=hire).count(), 1)
+        self.assertEqual(User.objects.get(employee=hire).username, 'custom.name')
+
+    def test_normal_case_still_uses_the_employee_number(self):
+        hire = self._employee('EMP-9003', '9003')
+        _provision_employee_account(hire)
+        self.assertEqual(User.objects.get(employee=hire).username, 'emp-9003')
+

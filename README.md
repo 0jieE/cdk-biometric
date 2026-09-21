@@ -140,9 +140,10 @@ return **only the requesting employee's own data**.
 | GET    | `/health/`                    | Public liveness check (no auth)                           |
 | POST   | `/auth/login/`                | Obtain access + refresh tokens                            |
 | POST   | `/auth/refresh/`              | Refresh an access token                                   |
-| GET    | `/me/`                        | Employee profile, incl. `photo_url` (absolute URL or `null`) |
+| GET    | `/me/`                        | Employee profile, incl. `username` and `photo_url` (absolute URL or `null`) |
 | POST   | `/me/photo/`                  | Upload/replace the profile photo (`multipart/form-data`, field `photo`; `PUT` also works) |
 | POST   | `/me/password/`               | Change password (`old_password`, `new_password`); returns fresh tokens |
+| POST   | `/me/username/`               | Change username (`username`, `current_password`); `PUT`/`PATCH` also work |
 | GET    | `/attendance/?start=&end=`    | Per-day record (AM/PM sessions, or IN/OUT for part-time) with `day_status` `PRESENT`/`LATE`/`HALF_DAY`/`ABSENT` |
 | GET    | `/attendance/summary/?month=` | Monthly present / late / half-day / absent counts + late/undertime/lost/overtime minutes (`month=YYYY-MM`) |
 | GET    | `/notifications/`             | The employee's notifications                              |
@@ -182,6 +183,36 @@ the portal.
 
 > One-off effect of enabling this: tokens issued before it was turned on don't carry
 > the password marker, so each phone signs in once more.
+
+### Changing the username
+
+`POST /me/username/` with `{"username": "...", "current_password": "..."}` (`PUT` and
+`PATCH` work too) → `{"username": "<saved value>"}`. `GET /me/` includes the current
+`username` for the edit screen.
+
+- **The current password is required**: a username is a login credential, and without
+  it a stolen access token could lock the real owner out by renaming the account.
+  A wrong password gives `400 {"current_password": [...]}` and nothing else — the
+  endpoint never says whether a name is taken until the password is right.
+- **Rules:** 3–30 characters; lowercase letters, digits, `.`, `_`, `-`; starts with a
+  letter or digit. Input is trimmed and lowercased (MySQL treats logins
+  case-insensitively, so `Ben` and `ben` are one account), so **show the returned
+  value**. Malformed → `400 {"username": [<rule>]}`.
+- **Refused with one message** (`This username is not available.`): a name already in
+  use (any case), reserved names (`admin`, `root`, ...), another employee's number
+  login (`emp-1005`), and anything shaped like a future employee number (`emp-####`),
+  so nobody can squat a colleague's or a new hire's login. Your *own* employee number
+  is always allowed, so you can go back to it. Choosing your current name → `400`.
+- **Nobody is signed out** — tokens identify the user by id, so the current session
+  and refresh token keep working. The app should just store the new name if it keeps
+  one for pre-filling the login form.
+- Shares the password endpoint's limit (5 attempts a minute together, `429` after).
+
+**Admins:** an employee's login may no longer be their employee number. The portal's
+"Create login" picks the next free name (`emp-1005-2`) if the default is taken, and
+`seed_data` finds accounts by employee rather than by name, so renaming can never
+stop the app from starting. A portal password reset restores the default *password*,
+not the username.
 
 **How a day's status is decided:** from the punches themselves — a session (or a
 part-time day) counts only with **both** an IN and an OUT. A workday with no

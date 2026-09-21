@@ -3,6 +3,7 @@
 from datetime import date, time
 from io import StringIO
 
+from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
 
@@ -67,6 +68,9 @@ class ScheduleResolverTests(TestCase):
         self.assertEqual(sched.midpoint, time(12, 30))  # midpoint of 12:00 and 13:00
 
 
+User = get_user_model()
+
+
 class SeedDataTests(TestCase):
     """seed_data runs on every container start, so it must never create anything
     that changes how REAL punches are counted."""
@@ -80,6 +84,20 @@ class SeedDataTests(TestCase):
         self.assertFalse(Holiday.objects.filter(name='Foundation Day').exists())
         # The two genuine fixed-date national holidays are still seeded.
         self.assertEqual(Holiday.objects.count(), 2)
+
+    def test_reseeding_survives_an_employee_renaming_their_login(self):
+        # Employees can rename their own login from the mobile app, and seed_data
+        # runs on EVERY container start. Looked up by username alone it would miss
+        # the renamed account, try to create a second user for the same employee and
+        # violate the one-to-one link — crashing the entrypoint (set -e), so the app
+        # would never boot again.
+        self._seed()
+        emp = Employee.objects.get(employee_no='EMP-1001')
+        User.objects.filter(employee=emp).update(username='maria.s')
+        self._seed()                                   # must not raise
+        self.assertEqual(User.objects.filter(employee=emp).count(), 1)
+        self.assertEqual(User.objects.get(employee=emp).username, 'maria.s')
+        self.assertFalse(User.objects.filter(username='emp-1001').exists())
 
     def test_reseeding_adds_nothing_new(self):
         self._seed()

@@ -1,7 +1,9 @@
+import logging
 import uuid
 from datetime import timedelta
 
 from django.core.files.base import ContentFile
+from django.db import IntegrityError
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import status
@@ -18,10 +20,14 @@ from apps.devices.models import MobileDevice
 from apps.notifications.models import Notification
 
 from .permissions import IsEmployeeUser
+from .usernames import UNAVAILABLE_MESSAGE
+
+logger = logging.getLogger('apps.api')
 from .selectors import build_daily_attendance, monthly_summary
 from .serializers import (
     AttendanceSummarySerializer,
     ChangePasswordSerializer,
+    ChangeUsernameSerializer,
     EmployeeProfileSerializer,
     MobileDeviceRegisterSerializer,
     NotificationSerializer,
@@ -89,6 +95,39 @@ class MePhotoView(APIView):
         return Response({'photo_url': request.build_absolute_uri(employee.photo.url)})
 
     put = post
+
+
+class ChangeUsernameView(APIView):
+    """Change the signed-in employee's username (their login name).
+
+    Body: ``username`` and ``current_password``. The password is required because
+    a username is a login credential — without it a stolen access token could lock
+    the real owner out by renaming the account. Names are normalised to lowercase;
+    taken, reserved and other-employee-number names are refused. Tokens identify
+    the user by id, so nobody is signed out. Shares the password-change throttle
+    (5/min) since it also verifies the current password.
+    """
+
+    permission_classes = [IsEmployeeUser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password'
+
+    def post(self, request):
+        serializer = ChangeUsernameSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        old = user.username
+        user.username = serializer.validated_data['username']
+        try:
+            user.save(update_fields=['username', 'updated_at'])
+        except IntegrityError:          # lost a race for the same name
+            return Response({'username': [UNAVAILABLE_MESSAGE]},
+                            status=status.HTTP_400_BAD_REQUEST)
+        logger.info('username changed for user id=%s: %r -> %r', user.pk, old, user.username)
+        return Response({'username': user.username})
+
+    put = patch = post
 
 
 class ChangePasswordView(APIView):

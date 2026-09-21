@@ -103,13 +103,21 @@ class Command(BaseCommand):
                 created['overrides'] += int(ov_created)
 
             username = e['no'].lower()
-            user, user_created = User.objects.get_or_create(
-                username=username,
-                defaults={
-                    'email': f'{username}@ckc.edu.ph', 'role': User.Roles.EMPLOYEE,
-                    'employee': emp, 'first_name': e['first'], 'last_name': e['last'],
-                },
-            )
+            # Look the account up by its EMPLOYEE first: employees can rename their
+            # own login from the mobile app, and this runs on every container start.
+            # Keyed on the username alone it would not find a renamed account, try to
+            # create a second user for the same employee, and hit the one-to-one
+            # constraint — crashing the entrypoint and stopping the app from booting.
+            user = User.objects.filter(employee=emp).first()
+            user_created = False
+            if user is None:
+                user, user_created = User.objects.get_or_create(
+                    username=username,
+                    defaults={
+                        'email': f'{username}@ckc.edu.ph', 'role': User.Roles.EMPLOYEE,
+                        'employee': emp, 'first_name': e['first'], 'last_name': e['last'],
+                    },
+                )
             if user_created:
                 user.set_password(EMPLOYEE_PASSWORD)
                 user.save()

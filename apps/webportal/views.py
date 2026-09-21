@@ -475,18 +475,26 @@ def employee_form(request, pk=None):
 def _provision_employee_account(employee):
     """Create the linked EMPLOYEE User. Schedule comes from the GlobalSchedule
     (or a per-employee EmployeeSchedule override set on the Schedule page)."""
-    username = employee.employee_no.lower()
-    if not User.objects.filter(username=username).exists():
-        user = User.objects.create(
-            username=username,
-            email=f'{username}@ckc.edu.ph',
-            role=User.Roles.EMPLOYEE,
-            employee=employee,
-            first_name=employee.first_name,
-            last_name=employee.last_name,
-        )
-        user.set_password(DEFAULT_EMPLOYEE_PASSWORD)
-        user.save()
+    if User.objects.filter(employee=employee).exists():
+        return                       # already has a login (possibly renamed by them)
+    # Default login = the employee number. If someone already holds that name (an
+    # employee may rename themselves from the mobile app), take the next free one
+    # rather than silently creating nothing and leaving the new hire unable to sign in.
+    base = employee.employee_no.lower()
+    username, n = base, 2
+    while User.objects.filter(username__iexact=username).exists():
+        username = f'{base}-{n}'
+        n += 1
+    user = User.objects.create(
+        username=username,
+        email=f'{base}@ckc.edu.ph',
+        role=User.Roles.EMPLOYEE,
+        employee=employee,
+        first_name=employee.first_name,
+        last_name=employee.last_name,
+    )
+    user.set_password(DEFAULT_EMPLOYEE_PASSWORD)
+    user.save()
 
 
 @admin_required

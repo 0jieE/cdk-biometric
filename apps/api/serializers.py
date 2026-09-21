@@ -6,6 +6,7 @@ from apps.devices.models import MobileDevice
 from apps.notifications.models import Notification
 
 from .photos import normalize_photo
+from .usernames import availability_problem, format_problem, normalize_username
 
 
 class EmployeeProfileSerializer(serializers.Serializer):
@@ -19,6 +20,7 @@ class EmployeeProfileSerializer(serializers.Serializer):
     date_hired = serializers.DateField(allow_null=True)
     is_fulltime = serializers.BooleanField()
     employment_type = serializers.CharField()
+    username = serializers.CharField(source='user.username', read_only=True)
     photo_url = serializers.SerializerMethodField()
 
     def get_photo_url(self, employee):
@@ -102,3 +104,30 @@ class ChangePasswordSerializer(serializers.Serializer):
         except DjangoValidationError as exc:
             raise serializers.ValidationError({'new_password': list(exc.messages)})
         return attrs
+
+
+class ChangeUsernameSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    current_password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate_current_password(self, value):
+        if not self.context['request'].user.check_password(value):
+            raise serializers.ValidationError('Incorrect password.')
+        return value
+
+    def validate_username(self, value):
+        value = normalize_username(value)
+        problem = format_problem(value)
+        if problem:
+            raise serializers.ValidationError(problem)
+        return value
+
+    def validate(self, attrs):
+        # Only reached once BOTH fields are individually valid, i.e. the password
+        # was right. Availability is checked last so that someone holding a stolen
+        # token (no password) can't use this endpoint to probe which names exist.
+        problem = availability_problem(attrs['username'], self.context['request'].user)
+        if problem:
+            raise serializers.ValidationError({'username': [problem]})
+        return attrs
+
