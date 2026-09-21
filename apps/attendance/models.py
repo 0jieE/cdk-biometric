@@ -28,6 +28,9 @@ class AttendanceLog(TimeStampedModel):
     class Source(models.TextChoices):
         DEVICE = 'DEVICE', 'Biometric Device'
         MANUAL = 'MANUAL', 'Manual Entry'
+        # Fake rows from `seed_demo_attendance`, tagged so they can always be
+        # told apart from real punches and removed again (`--clear`).
+        DEMO = 'DEMO', 'Demo Data'
 
     employee = models.ForeignKey(
         Employee, on_delete=models.CASCADE, related_name='attendance_logs')

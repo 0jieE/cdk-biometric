@@ -174,12 +174,17 @@ def _notify_for_new_log(log):
         logger.exception('notify_for_log failed for log %s', getattr(log, 'id', '?'))
 
 
-def ingest_punches(raw_punches, device=None) -> dict:
+def ingest_punches(raw_punches, device=None, source=None, notify=True) -> dict:
     """Classify + store a batch of raw punches (with per-day context so a single
     late-arriving punch is still classified correctly), firing an immediate
     notification for each NEW log, then recompute affected days.
 
     Shared by ``sync_attendance`` and the real-time ``attendance_listener``.
+
+    ``source`` tags the stored logs (default: a real device punch) and
+    ``notify=False`` skips the per-punch notification / push / live-page signal.
+    Both exist for ``seed_demo_attendance``: fake punches must be classified by
+    the exact production rules, but must never push notifications to real phones.
     """
     by_biometric = {e.biometric_id: e for e in Employee.objects.filter(is_active=True)}
     grouped: dict[int, dict[date_cls, list]] = defaultdict(lambda: defaultdict(list))
@@ -211,10 +216,11 @@ def ingest_punches(raw_punches, device=None) -> dict:
                 assigned = assign_parttime_punches(all_times)
 
             for log_type, log_dt in assigned.items():
-                log, was_created = _store_log(emp_id, device, log_dt, log_type)
+                log, was_created = _store_log(emp_id, device, log_dt, log_type, source=source)
                 if was_created:
                     created += 1
-                    _notify_for_new_log(log)
+                    if notify:
+                        _notify_for_new_log(log)
                 elif log is not None:
                     duplicates += 1
             affected.add((emp_id, day))

@@ -45,6 +45,17 @@ def _bio_int(biometric_id: str) -> int:
 
 
 class MockDeviceClient(BaseDeviceClient):
+    def __init__(self, ot_note: str = 'auto (mock simulator)',
+                 until: date_cls | None = None,
+                 skip: set | None = None):
+        # All optional; the defaults are the original live-simulator behaviour.
+        # `seed_demo_attendance` uses them to stop at a chosen last day, leave
+        # employee-days that already hold REAL punches untouched (`skip` is a set
+        # of (biometric_id, date)), and label the OT authorizations it creates.
+        self.ot_note = ot_note
+        self.until = until
+        self.skip = skip or set()
+
     def fetch_attendance(self, since: datetime | None = None) -> list[RawPunch]:
         from apps.attendance.models import OTAuthorization
         from apps.organization.models import Employee, Holiday
@@ -54,7 +65,7 @@ class MockDeviceClient(BaseDeviceClient):
         if since is None:
             since = now - timedelta(days=DEFAULT_LOOKBACK_DAYS)
         start_day = timezone.localtime(since).date()
-        end_day = timezone.localtime(now).date()
+        end_day = self.until or timezone.localtime(now).date()
 
         holidays = set(Holiday.objects.values_list('date', flat=True))
         tz = timezone.get_current_timezone()
@@ -76,7 +87,9 @@ class MockDeviceClient(BaseDeviceClient):
 
             day = start_day
             while day <= end_day:
-                if day.weekday() in sched.workdays and day not in holidays:
+                if (bio, day) in self.skip:
+                    pass
+                elif day.weekday() in sched.workdays and day not in holidays:
                     if emp.is_fulltime:
                         punches.extend(self._fulltime_day(
                             bio, day, sched, chronic_late, ot_employee,
@@ -117,7 +130,7 @@ class MockDeviceClient(BaseDeviceClient):
             ot_start = _add_minutes(sched.pm_out, 30)  # OT begins 30m after pm_out
             OTAuthorization.objects.get_or_create(
                 employee=emp, date=day,
-                defaults={'ot_start': ot_start, 'note': 'auto (mock simulator)'},
+                defaults={'ot_start': ot_start, 'note': self.ot_note},
             )
             out.append(self._punch(bio, day, ot_start, rng.randint(2, 8), STATUS_IN, tz))
             out.append(self._punch(bio, day, ot_start, rng.randint(90, 150), STATUS_OUT, tz))

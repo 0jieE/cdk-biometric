@@ -6,7 +6,7 @@
     <div class="punch-row-body">
       <div class="punch-row-name">{{ log.employee.full_name }}</div>
       <div class="punch-row-meta">
-        {% if log.source == 'MANUAL' %}<i class="bi bi-pencil"></i> manual{% else %}{{ log.device.name|default:"device" }}{% endif %}
+        {% if log.source == 'MANUAL' %}<i class="bi bi-pencil"></i> manual{% elif log.source == 'DEMO' %}<i class="bi bi-flask"></i> demo{% else %}{{ log.device.name|default:"device" }}{% endif %}
       </div>
     </div>
     <div class="punch-row-right">

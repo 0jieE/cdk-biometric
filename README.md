@@ -381,3 +381,41 @@ attendance was recorded. Days before it are never reported present/absent or
 backfilled. Left blank it defaults to the day of the earliest recorded punch, so
 it usually needs no setting; set it if a stray early test punch would otherwise
 move the start too far back. Days that have real punches always show.
+
+---
+
+# Demo data for testing reports
+
+To test reports (and the mobile app) against a full, varied month, seed **fake**
+attendance for every employee:
+
+```bash
+python manage.py seed_demo_attendance                    # this month, through yesterday
+python manage.py seed_demo_attendance --month 2026-09    # a specific month
+python manage.py seed_demo_attendance --month 2026-09 --clear   # remove it again
+```
+
+It is **opt-in** (nothing runs it automatically) and built so it can't be mistaken
+for, or damage, real records:
+
+- Every punch is tagged `source=DEMO` (shown as *demo* on the dashboard) and every
+  overtime authorization it creates has the note `Demo data`.
+- It **never sends notifications** — no push to real phones about fake punches.
+- It **never touches an employee-day that already has a real punch**, or one with
+  an admin-created overtime authorization.
+- Re-running **replaces** its own rows (no duplicates). Only completed days are
+  seeded (through yesterday) — never punches in the future.
+- `--clear` removes the demo rows and re-derives the real period's absences, so
+  the database ends up exactly as it would have been without the seed.
+
+The patterns come from the mock device simulator and run through the *same*
+classification code real punches use: EMP-1004 / EMP-1008 are chronically late,
+EMP-1005 / EMP-1010 work authorized overtime, EMP-1001 / EMP-1006 leave late with
+no authorization (so no overtime is computed), and everyone gets occasional
+half-days and absences; part-timers get occasional single-punch (incomplete) days.
+The output is deterministic, so two runs — or two machines — produce the same data.
+
+**Heads-up:** the earliest punch defines when attendance tracking began (see
+`ATTENDANCE_START_DATE`), so seeding a month makes that month "tracked": days with
+no punches then read as absences. `--clear` restores the previous start. Today is
+never seeded, so it shows as absent until real punches arrive.

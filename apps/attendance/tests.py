@@ -1,9 +1,13 @@
 """Phase 8 attendance logic tests."""
 
-from datetime import date, datetime, time
+import re
+from collections import defaultdict
+from datetime import date, datetime, time, timedelta
 from io import StringIO
+from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -383,3 +387,190 @@ class PartTimeTests(TestCase):
         result = process_day(self.emp, WORKDAY)
         self.assertEqual(result['undertimes'], 0)
         self.assertEqual(Undertime.objects.count(), 0)
+
+
+class SeedDemoAttendanceTests(TestCase):
+    """`seed_demo_attendance`: realistic fake data that is identifiable, silent,
+    never touches real records, and can be removed again."""
+
+    MONTH = '2026-07'   # a fully completed month (23 weekdays, no holidays)
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        dept = Department.objects.create(name='IT', code='IT')
+        # 9001: late-leaver, 9004: chronically late, 9005: OT-eligible (see the mock).
+        cls.people = [
+            Employee.objects.create(
+                employee_no=f'S-{bio}', first_name='S', last_name=bio, department=dept,
+                biometric_id=bio, is_fulltime=fulltime)
+            for bio, fulltime in (('9001', True), ('9004', True), ('9005', True), ('9007', False))
+        ]
+        # Long-standing staff, so days without punches are inferred absent.
+        Employee.objects.update(created_at=aware(date(2026, 6, 1), time(9, 0)))
+
+    def _seed(self, month=None, **kw):
+        out = StringIO()
+        call_command('seed_demo_attendance', month=month or self.MONTH, stdout=out, **kw)
+        return out.getvalue()
+
+    def _weekdays(self):
+        day, out = date(2026, 7, 1), []
+        while day.month == 7:
+            if day.weekday() < 5:
+                out.append(day)
+            day += timedelta(days=1)
+        return out
+
+    def _day_logs(self, emp, day):
+        return AttendanceLog.objects.filter(
+            employee=emp,
+            log_datetime__gte=aware(day, time.min),
+            log_datetime__lt=aware(day + timedelta(days=1), time.min))
+
+    # -- safety ----------------------------------------------------------------
+    def test_every_employee_gets_demo_logs_and_nothing_is_notified(self):
+        with patch('apps.notifications.services.notify_for_log') as notify:
+            self._seed()
+        notify.assert_not_called()
+        self.assertEqual(Notification.objects.count(), 0)
+        for emp in self.people:
+            sources = set(AttendanceLog.objects.filter(employee=emp)
+                          .values_list('source', flat=True))
+            self.assertEqual(sources, {'DEMO'}, emp.employee_no)
+
+    def test_real_punch_days_are_left_alone(self):
+        who, day = self.people[0], date(2026, 7, 8)
+        real = AttendanceLog.objects.create(
+            employee=who, log_type='AM_IN', log_datetime=aware(day, time(8, 1)),
+            source=AttendanceLog.Source.DEVICE)
+        self._seed()
+        logs = list(self._day_logs(who, day))
+        self.assertEqual([l.pk for l in logs], [real.pk])
+        # ...while the rest of that employee's month is filled in.
+        self.assertTrue(AttendanceLog.objects.filter(employee=who, source='DEMO').exists())
+
+    def test_admin_created_ot_authorization_day_is_left_alone(self):
+        who, day = self.people[2], date(2026, 7, 8)          # 9005 is OT-eligible
+        OTAuthorization.objects.create(employee=who, date=day, ot_start=time(18, 0),
+                                       note='Board work')
+        self._seed()
+        self.assertFalse(self._day_logs(who, day).exists())
+        self.assertEqual(OTAuthorization.objects.get(employee=who, date=day).note, 'Board work')
+
+    def test_ot_authorizations_are_labelled_demo(self):
+        self._seed()
+        self.assertFalse(OTAuthorization.objects.exclude(note='Demo data').exists())
+        self.assertTrue(OTAuthorization.objects.filter(
+            note='Demo data', employee__biometric_id='9005').exists())
+
+    # -- coverage ---------------------------------------------------------------
+    def test_every_workday_is_accounted_for(self):
+        self._seed()
+        for emp in self.people:
+            logged = {timezone.localtime(l.log_datetime).date()
+                      for l in AttendanceLog.objects.filter(employee=emp)}
+            absent = set(Absence.objects.filter(employee=emp).values_list('date', flat=True))
+            for day in self._weekdays():
+                self.assertTrue(day in logged or day in absent, f'{emp.employee_no} {day}')
+
+    def test_rerun_replaces_instead_of_duplicating(self):
+        def snapshot():
+            return sorted(AttendanceLog.objects.values_list(
+                'employee_id', 'log_datetime', 'log_type', 'source'))
+        self._seed()
+        first = snapshot()
+        self.assertTrue(first)
+        self._seed()
+        self.assertEqual(snapshot(), first)
+
+    def test_future_month_seeds_nothing(self):
+        text = self._seed(month='2099-01')
+        self.assertIn('Nothing to seed', text)
+        self.assertFalse(AttendanceLog.objects.exists())
+
+    def test_bad_month_rejected(self):
+        with self.assertRaises(CommandError):
+            self._seed(month='July')
+
+    # -- removal ---------------------------------------------------------------
+    def test_clear_removes_demo_rows_and_keeps_real_data(self):
+        who, day = self.people[0], date(2026, 7, 8)
+        real = AttendanceLog.objects.create(
+            employee=who, log_type='AM_IN', log_datetime=aware(day, time(8, 1)),
+            source=AttendanceLog.Source.DEVICE)
+        self._seed()
+        self.assertTrue(AttendanceLog.objects.filter(source='DEMO').exists())
+        self._seed(clear=True)
+
+        self.assertFalse(AttendanceLog.objects.filter(source='DEMO').exists())
+        self.assertFalse(OTAuthorization.objects.filter(note='Demo data').exists())
+        self.assertTrue(AttendanceLog.objects.filter(pk=real.pk).exists())
+        # Nothing fake is left behind for days before real tracking began.
+        self.assertFalse(Absence.objects.filter(date__lt=day).exists())
+        self.assertFalse(Lates.objects.filter(date__lt=day).exists())
+
+    # -- the reports, checked against the raw punches -----------------------------
+    def _expected(self, emp):
+        """Independent recount straight from the punches (no selectors/reports):
+        (both_sessions_days, half_days, absent_days, late_minutes)."""
+        by_day = defaultdict(dict)
+        for log in AttendanceLog.objects.filter(employee=emp):
+            local = timezone.localtime(log.log_datetime)
+            by_day[local.date()][log.log_type] = local.hour * 60 + local.minute
+        both = half = absent = late = 0
+        for day in self._weekdays():
+            t = by_day.get(day, {})
+            am = 'AM_IN' in t and 'AM_OUT' in t
+            pm = 'PM_IN' in t and 'PM_OUT' in t
+            both += int(am and pm)
+            half += int(am != pm)
+            absent += int(not am and not pm)
+            if am:
+                late += max(0, t['AM_IN'] - (8 * 60 + 5))     # 08:00 + 5 min grace
+            if pm:
+                late += max(0, t['PM_IN'] - (13 * 60 + 5))    # 13:00 + 5 min grace
+        return both, half, absent, late
+
+    def test_reports_agree_with_the_raw_punches(self):
+        from apps.api.selectors import monthly_summary
+        from apps.reports.generators import build_report
+        from apps.reports.tests import xlsx_rows
+
+        self._seed()
+        fulltime = [e for e in self.people if e.is_fulltime]
+        all_expected = [self._expected(e) for e in fulltime]
+        # The dataset must actually exercise the interesting cases, or this proves little.
+        self.assertTrue(any(h for _, h, _, _ in all_expected), 'no half-days seeded')
+        self.assertTrue(any(a for _, _, a, _ in all_expected), 'no absences seeded')
+        self.assertTrue(any(m for _, _, _, m in all_expected), 'no lateness seeded')
+
+        _, tardiness = build_report('TARDINESS', 'XLSX', {'start': '2026-07-01', 'end': '2026-07-31'})
+        tardiness_rows = xlsx_rows(tardiness)[1:]
+
+        for emp, (both, half, absent, late) in zip(fulltime, all_expected):
+            label = emp.employee_no
+            # 1) the API/portal summary
+            s = monthly_summary(emp, 2026, 7)
+            self.assertEqual(s['present'] + s['late'], both, label)
+            self.assertEqual(s['half_day'], half, label)
+            self.assertEqual(s['absent'], absent, label)
+            self.assertEqual(s['late_minutes'], late, label)
+            # 2) the Employee Attendance (DTR) report's TOTAL row
+            _, dtr = build_report('EMPLOYEE_ATTENDANCE', 'XLSX', {
+                'employee': emp.id, 'start': '2026-07-01', 'end': '2026-07-31'})
+            total = xlsx_rows(dtr)[-1]
+            present, late_days, half_days, absent_days = (int(n) for n in re.findall(r'\d+', total[6]))
+            self.assertEqual((present + late_days, half_days, absent_days), (both, half, absent), label)
+            self.assertEqual(total[7], late, label)
+            # 3) the Tardiness report (sum of this employee's rows)
+            self.assertEqual(sum(r[5] for r in tardiness_rows if r[1] == emp.employee_no), late, label)
+
+
+class MockClientDefaultsTests(TestCase):
+    def test_defaults_keep_the_original_live_simulator_behaviour(self):
+        from apps.devices.clients.mock_client import MockDeviceClient
+        client = MockDeviceClient()
+        self.assertEqual(client.ot_note, 'auto (mock simulator)')
+        self.assertIsNone(client.until)
+        self.assertEqual(client.skip, set())
