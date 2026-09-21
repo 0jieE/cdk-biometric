@@ -205,3 +205,32 @@ class ProvisionAccountTests(TestCase):
         _provision_employee_account(hire)
         self.assertEqual(User.objects.get(employee=hire).username, 'emp-9003')
 
+
+
+class ScheduleMidpointFormTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        cls.admin = User.objects.create(username='admin3', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+    def _post(self, midpoint):
+        self.client.login(username='admin3', password=PASSWORD)
+        return self.client.post(reverse('webportal:schedule'), {
+            'am_in': '08:00', 'am_out': '12:00', 'pm_in': '13:00', 'pm_out': '17:00',
+            'midpoint': midpoint, 'grace_period_minutes': 5, 'workdays': [0, 1, 2, 3, 4]})
+
+    def test_page_shows_the_default_midpoint(self):
+        self.client.login(username='admin3', password=PASSWORD)
+        self.assertContains(self.client.get(reverse('webportal:schedule')), 'value="12:30"')
+
+    def test_midpoint_can_be_changed(self):
+        self._post('12:15')
+        self.assertEqual(GlobalSchedule.load().midpoint, time(12, 15))
+
+    def test_midpoint_outside_the_working_day_is_rejected(self):
+        resp = self._post('18:00')
+        self.assertContains(resp, 'Must fall between')
+        self.assertEqual(GlobalSchedule.load().midpoint, time(12, 30))

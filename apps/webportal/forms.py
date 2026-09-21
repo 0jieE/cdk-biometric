@@ -141,32 +141,43 @@ class GlobalScheduleForm(_WorkdaysMixin, BootstrapMixin, forms.ModelForm):
 
     class Meta:
         model = GlobalSchedule
-        fields = ('am_in', 'am_out', 'pm_in', 'pm_out', 'grace_period_minutes', 'workdays')
+        fields = ('am_in', 'am_out', 'pm_in', 'pm_out', 'midpoint',
+                  'grace_period_minutes', 'workdays')
         widgets = {f: forms.TimeInput(attrs={'type': 'time'}, format='%H:%M')
-                   for f in ('am_in', 'am_out', 'pm_in', 'pm_out')}
+                   for f in ('am_in', 'am_out', 'pm_in', 'pm_out', 'midpoint')}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for f in ('am_in', 'am_out', 'pm_in', 'pm_out'):
+        for f in ('am_in', 'am_out', 'pm_in', 'pm_out', 'midpoint'):
             self.fields[f].input_formats = ['%H:%M', '%H:%M:%S']
+        self.fields['midpoint'].label = 'AM/PM midpoint'
+        self.fields['midpoint'].help_text = 'Punches up to this time are AM, after it PM.'
         self.fields['workdays'] = self._build_workdays_field(required=True)
         if self.instance and self.instance.pk:
             self.fields['workdays'].initial = self.instance.workdays
+
+    def clean(self):
+        data = super().clean()
+        mid, start, end = data.get('midpoint'), data.get('am_in'), data.get('pm_out')
+        if mid and start and end and not (start < mid < end):
+            self.add_error('midpoint', 'Must fall between the AM time in and the PM time out.')
+        return data
 
 
 class EmployeeScheduleForm(_WorkdaysMixin, BootstrapMixin, forms.ModelForm):
     class Meta:
         model = EmployeeSchedule
-        fields = ('am_in', 'am_out', 'pm_in', 'pm_out', 'grace_period_minutes', 'workdays')
+        fields = ('am_in', 'am_out', 'pm_in', 'pm_out', 'midpoint',
+                  'grace_period_minutes', 'workdays')
         widgets = {f: forms.TimeInput(attrs={'type': 'time'}, format='%H:%M')
-                   for f in ('am_in', 'am_out', 'pm_in', 'pm_out')}
+                   for f in ('am_in', 'am_out', 'pm_in', 'pm_out', 'midpoint')}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Every field optional — blank means "inherit global".
         for name, field in self.fields.items():
             field.required = False
-            if name in ('am_in', 'am_out', 'pm_in', 'pm_out'):
+            if name in ('am_in', 'am_out', 'pm_in', 'pm_out', 'midpoint'):
                 field.input_formats = ['%H:%M', '%H:%M:%S']
         self.fields['workdays'] = self._build_workdays_field(required=False)
         if self.instance and self.instance.pk and self.instance.workdays:

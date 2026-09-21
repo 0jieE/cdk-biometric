@@ -30,7 +30,7 @@ class EmployeeAdmin(admin.ModelAdmin):
 @admin.register(GlobalSchedule)
 class GlobalScheduleAdmin(admin.ModelAdmin):
     list_display = ('am_in', 'am_out', 'pm_in', 'pm_out',
-                    'grace_period_minutes', 'workdays')
+                    'midpoint', 'grace_period_minutes', 'workdays')
 
     def has_add_permission(self, request):
         # Singleton — only ever one row.
@@ -43,7 +43,7 @@ class GlobalScheduleAdmin(admin.ModelAdmin):
 @admin.register(EmployeeSchedule)
 class EmployeeScheduleAdmin(admin.ModelAdmin):
     list_display = ('employee', 'am_in', 'am_out', 'pm_in', 'pm_out',
-                    'grace_period_minutes', 'workdays')
+                    'midpoint', 'grace_period_minutes', 'workdays')
     search_fields = ('employee__employee_no', 'employee__last_name')
     autocomplete_fields = ('employee',)
 

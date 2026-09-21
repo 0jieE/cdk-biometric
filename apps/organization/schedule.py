@@ -19,21 +19,10 @@ class EffectiveSchedule:
     pm_out: time
     grace_period_minutes: int
     workdays: list
+    midpoint: time = time(12, 30)  # AM/PM boundary for classifying punches
 
     def session_in(self, session: str) -> time:
         return self.am_in if session == 'AM' else self.pm_in
-
-    @property
-    def midpoint(self) -> time:
-        """Boundary between AM and PM punches: midpoint of am_out↔pm_in.
-        Falls back to 12:30 if the values are unusable."""
-        try:
-            a = self.am_out.hour * 60 + self.am_out.minute
-            b = self.pm_in.hour * 60 + self.pm_in.minute
-            m = (a + b) // 2
-            return time(m // 60, m % 60)
-        except Exception:  # pragma: no cover - defensive
-            return time(12, 30)
 
 
 def get_effective_schedule(employee) -> EffectiveSchedule:
@@ -55,4 +44,5 @@ def get_effective_schedule(employee) -> EffectiveSchedule:
         pm_out=pick('pm_out'),
         grace_period_minutes=pick('grace_period_minutes'),
         workdays=pick('workdays'),
+        midpoint=pick('midpoint'),
     )

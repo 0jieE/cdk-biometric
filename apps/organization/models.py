@@ -117,6 +117,8 @@ class GlobalSchedule(TimeStampedModel):
     am_out = models.TimeField(default=time(12, 0))
     pm_in = models.TimeField(default=time(13, 0))
     pm_out = models.TimeField(default=time(17, 0))
+    # Punches at/before this are AM, after it PM (unless past a session's time out).
+    midpoint = models.TimeField(default=time(12, 30))
     grace_period_minutes = models.PositiveIntegerField(default=5)
     workdays = models.JSONField(default=default_workdays)
 
@@ -153,6 +155,7 @@ class EmployeeSchedule(TimeStampedModel):
     am_out = models.TimeField(null=True, blank=True)
     pm_in = models.TimeField(null=True, blank=True)
     pm_out = models.TimeField(null=True, blank=True)
+    midpoint = models.TimeField(null=True, blank=True)
     grace_period_minutes = models.PositiveIntegerField(null=True, blank=True)
     workdays = models.JSONField(null=True, blank=True)
 

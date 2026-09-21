@@ -65,7 +65,19 @@ class ScheduleResolverTests(TestCase):
     def test_midpoint(self):
         emp = self._emp('R-5', '4005')
         sched = get_effective_schedule(emp)
-        self.assertEqual(sched.midpoint, time(12, 30))  # midpoint of 12:00 and 13:00
+        self.assertEqual(sched.midpoint, time(12, 30))  # default, independent of lunch times
+
+    def test_midpoint_is_a_setting_not_derived_from_lunch(self):
+        g = GlobalSchedule.load()
+        g.am_out, g.pm_in = time(11, 0), time(11, 30)   # would derive 11:15
+        g.save()
+        emp = self._emp('R-6', '4006')
+        self.assertEqual(get_effective_schedule(emp).midpoint, time(12, 30))
+        g.midpoint = time(12, 0)
+        g.save()
+        self.assertEqual(get_effective_schedule(emp).midpoint, time(12, 0))
+        EmployeeSchedule.objects.create(employee=emp, midpoint=time(12, 45))
+        self.assertEqual(get_effective_schedule(emp).midpoint, time(12, 45))
 
 
 User = get_user_model()
