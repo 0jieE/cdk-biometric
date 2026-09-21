@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.utils import get_md5_hash_password
 
 from apps.attendance.models import AttendanceLog
 from apps.attendance.services import process_day
@@ -130,7 +131,11 @@ class ApiAttendanceTests(TestCase):
         now = int(time_module.time())
         token = jwt.encode(
             {'token_type': 'access', 'exp': now + 3600, 'iat': now + seconds_from_now,
-             'jti': 'skewtest', 'user_id': self.user_a.id},
+             'jti': 'skewtest', 'user_id': self.user_a.id,
+             # Tokens must carry the current password hash (CHECK_REVOKE_TOKEN);
+             # without it every hand-made token would be rejected for THAT reason
+             # and these tests would no longer be testing clock skew at all.
+             'hash_password': get_md5_hash_password(self.user_a.password)},
             settings.SECRET_KEY, algorithm='HS256')
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')

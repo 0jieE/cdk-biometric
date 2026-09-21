@@ -1,12 +1,18 @@
+import uuid
 from datetime import timedelta
 
+from django.core.files.base import ContentFile
 from django.utils import timezone
+from django.utils.text import slugify
 from rest_framework import status
 from rest_framework.generics import ListAPIView
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.devices.models import MobileDevice
 from apps.notifications.models import Notification
@@ -15,9 +21,11 @@ from .permissions import IsEmployeeUser
 from .selectors import build_daily_attendance, monthly_summary
 from .serializers import (
     AttendanceSummarySerializer,
+    ChangePasswordSerializer,
     EmployeeProfileSerializer,
     MobileDeviceRegisterSerializer,
     NotificationSerializer,
+    PhotoUploadSerializer,
 )
 
 
@@ -46,8 +54,70 @@ class MeView(APIView):
     permission_classes = [IsEmployeeUser]
 
     def get(self, request):
-        serializer = EmployeeProfileSerializer(request.user.employee)
+        serializer = EmployeeProfileSerializer(
+            request.user.employee, context={'request': request})
         return Response(serializer.data)
+
+
+class MePhotoView(APIView):
+    """Upload (or replace) the signed-in employee's profile photo.
+
+    multipart/form-data with a ``photo`` file. The image is validated, made
+    upright, shrunk to <=512px and re-encoded as a metadata-free JPEG (so EXIF GPS
+    never reaches disk). The previous file is deleted. Returns the new URL, also
+    exposed as ``photo_url`` on GET /me/.
+    """
+
+    permission_classes = [IsEmployeeUser]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request):
+        serializer = PhotoUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        jpeg = serializer.validated_data['photo']
+
+        employee = request.user.employee
+        old_name = employee.photo.name if employee.photo else None
+        # Random suffix: every upload gets a fresh URL (phones/caches never show a
+        # stale photo) and the path isn't guessable from the employee number alone.
+        filename = f'{slugify(employee.employee_no)}-{uuid.uuid4().hex[:12]}.jpg'
+        employee.photo.save(filename, ContentFile(jpeg), save=False)
+        employee.save(update_fields=['photo', 'updated_at'])
+        if old_name and old_name != employee.photo.name:
+            employee.photo.storage.delete(old_name)
+
+        return Response({'photo_url': request.build_absolute_uri(employee.photo.url)})
+
+    put = post
+
+
+class ChangePasswordView(APIView):
+    """Change the signed-in employee's password.
+
+    Body: ``old_password`` and ``new_password`` (checked against the project's
+    password rules). Every token issued before the change stops working, so the
+    response carries a fresh ``access``/``refresh`` pair for THIS device. Throttled
+    (5/min) because it verifies the current password.
+    """
+
+    permission_classes = [IsEmployeeUser]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'password'
+
+    def post(self, request):
+        serializer = ChangePasswordSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        user.set_password(serializer.validated_data['new_password'])
+        user.save(update_fields=['password'])
+
+        refresh = RefreshToken.for_user(user)        # signed with the NEW password hash
+        return Response({
+            'detail': 'password changed',
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        })
 
 
 class AttendanceListView(APIView):

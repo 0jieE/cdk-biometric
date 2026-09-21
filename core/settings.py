@@ -175,6 +175,10 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 25,
     'DATETIME_FORMAT': 'iso-8601',
+    # Only views that opt in (throttle_scope) are throttled. Changing a password
+    # means guessing the current one, so cap attempts. NOTE: the counter lives in
+    # Django's cache — per process with the default local-memory cache.
+    'DEFAULT_THROTTLE_RATES': {'password': '5/min'},
 }
 
 SIMPLE_JWT = {
@@ -189,6 +193,12 @@ SIMPLE_JWT = {
     # leeway, even 1s of skew is fatal. 60s is negligible against the 60-minute
     # access-token lifetime.
     'LEEWAY': 60,
+    # Tokens embed a hash of the user's password; once the password changes, every
+    # token issued before it stops working (a stolen phone/session can't outlive a
+    # password change, and an admin's password reset in the portal signs the phone
+    # out too). Tokens issued before this was enabled lack the claim, so each phone
+    # simply logs in once more.
+    'CHECK_REVOKE_TOKEN': True,
 }
 
 

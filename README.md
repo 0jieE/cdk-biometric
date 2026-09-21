@@ -140,13 +140,48 @@ return **only the requesting employee's own data**.
 | GET    | `/health/`                    | Public liveness check (no auth)                           |
 | POST   | `/auth/login/`                | Obtain access + refresh tokens                            |
 | POST   | `/auth/refresh/`              | Refresh an access token                                   |
-| GET    | `/me/`                        | Employee profile                                          |
+| GET    | `/me/`                        | Employee profile, incl. `photo_url` (absolute URL or `null`) |
+| POST   | `/me/photo/`                  | Upload/replace the profile photo (`multipart/form-data`, field `photo`; `PUT` also works) |
+| POST   | `/me/password/`               | Change password (`old_password`, `new_password`); returns fresh tokens |
 | GET    | `/attendance/?start=&end=`    | Per-day record (AM/PM sessions, or IN/OUT for part-time) with `day_status` `PRESENT`/`LATE`/`HALF_DAY`/`ABSENT` |
 | GET    | `/attendance/summary/?month=` | Monthly present / late / half-day / absent counts + late/undertime/lost/overtime minutes (`month=YYYY-MM`) |
 | GET    | `/notifications/`             | The employee's notifications                              |
 | POST   | `/devices/register/`          | Register/update an FCM token (`fcm_token`, `platform`)    |
 
 `/attendance/` and `/notifications/` are paginated (`PAGE_SIZE = 25`).
+
+### Profile photo
+
+`GET /me/` returns `photo_url` — an absolute URL (https through the tunnel) the app
+can load directly (`Image.network(url)`), or `null` if the employee has no photo. The
+URL changes on every upload, so it never serves a stale picture. Photos are public
+by URL, like the portal's other employee photos (the filename carries a random
+suffix, so it isn't guessable).
+
+`POST /me/photo/` takes `multipart/form-data` with a `photo` file and returns
+`{"photo_url": ...}`. JPEG, PNG or WebP up to 10 MB (HEIC is not supported — have
+the picker convert to JPEG). The server validates it is really an image, applies the
+phone's rotation, shrinks it to at most 512 px, and re-encodes it as a JPEG with
+**all metadata removed** (phone photos carry the GPS location they were taken at).
+The previous photo file is deleted. Errors are `400 {"photo": ["..."]}`; JSON bodies
+get `415`. A photo set in the web portal shows up in the same field.
+
+### Changing the password
+
+`POST /me/password/` with `{"old_password": "...", "new_password": "..."}`.
+`400` with `old_password: ["Incorrect password."]` if the current one is wrong, or
+`new_password: [...]` listing every rule it breaks (min length 8, not too common,
+not all digits, not too similar to the username, not the same as before). Limited to
+5 attempts a minute (`429` after that).
+
+On success it returns `{"detail", "access", "refresh"}` — **store the new tokens**.
+Every token issued before the change stops working: other devices get `401` on their
+next call, and `POST /auth/refresh/` answers `401 {"code": "password_changed"}` — send
+the user to the login screen. The same happens when an admin resets the password in
+the portal.
+
+> One-off effect of enabling this: tokens issued before it was turned on don't carry
+> the password marker, so each phone signs in once more.
 
 **How a day's status is decided:** from the punches themselves — a session (or a
 part-time day) counts only with **both** an IN and an OUT. A workday with no

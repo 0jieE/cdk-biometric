@@ -1,11 +1,15 @@
 from django.urls import path
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+from .auth import RevokeAwareTokenRefreshView
 
 from .views import (
     AttendanceListView,
     AttendanceSummaryView,
+    ChangePasswordView,
     DeviceRegisterView,
     HealthView,
+    MePhotoView,
     MeView,
     NotificationListView,
 )
@@ -18,10 +22,12 @@ urlpatterns = [
 
     # Auth
     path('auth/login/', TokenObtainPairView.as_view(), name='login'),
-    path('auth/refresh/', TokenRefreshView.as_view(), name='refresh'),
+    path('auth/refresh/', RevokeAwareTokenRefreshView.as_view(), name='refresh'),
 
     # Employee self-service
     path('me/', MeView.as_view(), name='me'),
+    path('me/photo/', MePhotoView.as_view(), name='me-photo'),
+    path('me/password/', ChangePasswordView.as_view(), name='me-password'),
     path('attendance/', AttendanceListView.as_view(), name='attendance'),
     path('attendance/summary/', AttendanceSummaryView.as_view(), name='attendance-summary'),
     path('notifications/', NotificationListView.as_view(), name='notifications'),
