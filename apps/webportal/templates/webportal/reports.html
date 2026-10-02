@@ -20,8 +20,33 @@
         <span>Report Jobs</span>
         <span class="text-muted small"><i class="bi bi-arrow-clockwise"></i> polls every 3s</span>
       </div>
+      <div class="card-pad pb-0">
+        <form id="jobFilters" class="row g-2 align-items-end"
+              hx-get="{% url 'webportal:report_jobs' %}" hx-target="#jobs"
+              hx-trigger="submit, change, keyup changed delay:500ms">
+          <div class="col-12 col-md-5">
+            <label class="form-label small">Search</label>
+            <input type="text" name="q" value="{{ job_filters.q }}" class="form-control form-control-sm"
+                   placeholder="Employee, format, status…" autocomplete="off">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small">Requested from</label>
+            <input type="date" name="start" value="{{ job_filters.start|date:'Y-m-d' }}"
+                   class="form-control form-control-sm">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label small">to</label>
+            <input type="date" name="end" value="{{ job_filters.end|date:'Y-m-d' }}"
+                   class="form-control form-control-sm">
+          </div>
+          <div class="col-12 col-md-1 d-grid">
+            <a href="{% url 'webportal:reports' %}" class="btn btn-outline-secondary btn-sm" title="Clear filters">
+              <i class="bi bi-x-lg"></i></a>
+          </div>
+        </form>
+      </div>
       <div id="jobs" hx-get="{% url 'webportal:report_jobs' %}"
-           hx-trigger="load, refreshJobs from:body, every 3s">
+           hx-trigger="load, refreshJobs from:body, every 3s" hx-include="#jobFilters">
         {% include 'webportal/partials/report_jobs.html' %}
       </div>
     </div>

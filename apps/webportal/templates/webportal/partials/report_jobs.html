@@ -25,7 +25,9 @@
         </td>
       </tr>
     {% empty %}
-      <tr><td colspan="6" class="text-center text-muted py-3">No report jobs yet.</td></tr>
+      <tr><td colspan="6" class="text-center text-muted py-3">
+        {% if job_filters.q %}No report jobs match your filters.{% else %}No report jobs yet.{% endif %}
+      </td></tr>
     {% endfor %}
     </tbody>
   </table>

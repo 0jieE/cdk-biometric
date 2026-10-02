@@ -896,10 +896,45 @@ def device_test(request, pk):
 # ---------------------------------------------------------------------------
 # Reports
 # ---------------------------------------------------------------------------
-def _recent_jobs():
-    """Latest report jobs, each tagged with the employee it was for. Resolved
-    in ONE query, not one per row — the jobs list re-polls every 3 seconds."""
-    jobs = list(ReportJob.objects.select_related('requested_by')[:25])
+def _report_jobs_filters(request):
+    today = trusted_localdate()
+    return {
+        'q': (request.GET.get('q') or '').strip(),
+        'start': _parse_date(request.GET.get('start'), today - timedelta(days=30)),
+        'end': _parse_date(request.GET.get('end'), today),
+    }
+
+
+def _recent_jobs(filters=None):
+    """Report jobs matching ``filters`` (search text + a date range on when the
+    job was requested), each tagged with the employee it was for. Employee
+    labels are resolved in ONE query, not one per row — the list re-polls
+    every 3 seconds."""
+    filters = filters or {}
+    start, end = filters.get('start'), filters.get('end')
+    qs = ReportJob.objects.select_related('requested_by')
+    # Explicit UTC datetime bounds, not a `created_at__date` lookup: on MySQL
+    # that lookup needs CONVERT_TZ, which silently returns NULL (matching
+    # nothing) unless the server's timezone tables happen to be loaded.
+    if start:
+        qs = qs.filter(created_at__gte=timezone.make_aware(datetime.combine(start, time.min)))
+    if end:
+        qs = qs.filter(created_at__lt=timezone.make_aware(datetime.combine(end, time.min))
+                       + timedelta(days=1))
+
+    q = filters.get('q')
+    if q:
+        emp_ids = list(Employee.objects.filter(
+            models.Q(first_name__icontains=q) | models.Q(last_name__icontains=q) |
+            models.Q(employee_no__icontains=q),
+        ).values_list('id', flat=True))
+        match = (models.Q(fmt__icontains=q) | models.Q(status__icontains=q) |
+                 models.Q(report_type__icontains=q))
+        for emp_id in emp_ids:
+            match |= models.Q(params__employee=emp_id)
+        qs = qs.filter(match)
+
+    jobs = list(qs.order_by('-created_at')[:200])
     ids = {int(j.params['employee']) for j in jobs if (j.params or {}).get('employee')}
     labels = {e.pk: f'{e.employee_no} · {e.full_name}'
               for e in Employee.objects.filter(pk__in=ids)}
@@ -933,16 +968,20 @@ def reports(request):
             return _trigger('refreshJobs')
         return render(request, 'webportal/partials/report_form.html', {'form': form})
 
+    filters = _report_jobs_filters(request)
     context = {
         'form': ReportForm(),
-        'jobs': _recent_jobs(),
+        'jobs': _recent_jobs(filters),
+        'job_filters': filters,
     }
     return render(request, 'webportal/reports.html', context)
 
 
 @admin_required
 def report_jobs(request):
-    return render(request, 'webportal/partials/report_jobs.html', {'jobs': _recent_jobs()})
+    filters = _report_jobs_filters(request)
+    return render(request, 'webportal/partials/report_jobs.html',
+                  {'jobs': _recent_jobs(filters), 'job_filters': filters})
 
 
 @admin_required

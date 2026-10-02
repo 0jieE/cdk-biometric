@@ -1,12 +1,13 @@
 """Web portal RBAC + Phase 8 page tests."""
 
-from datetime import date, time
+from datetime import date, time, timedelta
 
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.attendance.models import AttendanceLog, OTAuthorization
 from apps.devices.models import BiometricDevice
@@ -170,6 +171,84 @@ class ReportsPageTests(TestCase):
     def test_reports_page_is_admin_only(self):
         self.client.logout()
         self.assertEqual(self.client.get(reverse('webportal:reports')).status_code, 302)
+
+
+class ReportJobsFilterTests(TestCase):
+    """The Report Jobs table: search (employee / format / status) + a date
+    range on when the job was requested."""
+
+    @classmethod
+    def setUpTestData(cls):
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.alice = Employee.objects.create(
+            employee_no='RJ-1', first_name='Alice', last_name='Reyes',
+            department=dept, biometric_id='8201', is_fulltime=True)
+        cls.bob = Employee.objects.create(
+            employee_no='RJ-2', first_name='Bob', last_name='Santos',
+            department=dept, biometric_id='8202', is_fulltime=True)
+        cls.admin = User.objects.create(username='admin6', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+        cls.alice_job = ReportJob.objects.create(
+            report_type='ATTENDANCE', fmt='PDF', status='DONE',
+            params={'employee': cls.alice.id, 'start': '2026-07-01', 'end': '2026-07-31'})
+        cls.bob_job = ReportJob.objects.create(
+            report_type='ATTENDANCE', fmt='XLSX', status='PENDING',
+            params={'employee': cls.bob.id, 'start': '2026-07-01', 'end': '2026-07-31'})
+        old = ReportJob.objects.create(
+            report_type='TARDINESS', fmt='PDF', status='DONE', params={})
+        old.created_at = timezone.now() - timedelta(days=90)
+        old.save(update_fields=['created_at'])
+        cls.old_job = old
+
+    def setUp(self):
+        self.client.login(username='admin6', password=PASSWORD)
+
+    def _ids(self, **params):
+        resp = self.client.get(reverse('webportal:report_jobs'), params)
+        return {j.id for j in resp.context['jobs']}, resp
+
+    def test_no_filters_defaults_to_the_last_30_days(self):
+        ids, _ = self._ids()
+        self.assertEqual(ids, {self.alice_job.id, self.bob_job.id})
+        self.assertNotIn(self.old_job.id, ids)
+
+    def test_search_matches_employee_name(self):
+        ids, _ = self._ids(q='Reyes')
+        self.assertEqual(ids, {self.alice_job.id})
+
+    def test_search_matches_employee_number(self):
+        ids, _ = self._ids(q='RJ-2')
+        self.assertEqual(ids, {self.bob_job.id})
+
+    def test_search_matches_format(self):
+        ids, _ = self._ids(q='XLSX')
+        self.assertEqual(ids, {self.bob_job.id})
+
+    def test_search_matches_status(self):
+        ids, _ = self._ids(q='PENDING')
+        self.assertEqual(ids, {self.bob_job.id})
+
+    def test_search_with_no_match_is_empty_and_says_so(self):
+        ids, resp = self._ids(q='nobody-like-this')
+        self.assertEqual(ids, set())
+        self.assertContains(resp, 'No report jobs match your filters.')
+
+    def test_date_range_reaches_older_jobs(self):
+        ids, _ = self._ids(start='2026-01-01', end=timezone.localdate().isoformat())
+        self.assertIn(self.old_job.id, ids)
+
+    def test_date_range_excludes_jobs_outside_it(self):
+        ids, _ = self._ids(start=(timezone.now() - timedelta(days=5)).date().isoformat(),
+                           end=timezone.localdate().isoformat())
+        self.assertNotIn(self.old_job.id, ids)
+        self.assertIn(self.alice_job.id, ids)
+
+    def test_report_jobs_endpoint_is_admin_only(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse('webportal:report_jobs')).status_code, 302)
 
 
 class ProvisionAccountTests(TestCase):
