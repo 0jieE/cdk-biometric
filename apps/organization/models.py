@@ -180,3 +180,35 @@ class Holiday(TimeStampedModel):
 
     def __str__(self) -> str:
         return f'{self.date} - {self.name}'
+
+
+class TimeSync(TimeStampedModel):
+    """The gap between this server's own clock and real time, as last measured
+    against an online time source. Attendance decisions use this correction
+    (see ``apps.organization.trusted_time``) so a drifted server clock doesn't
+    throw off punch classification. Enforced single row (pk=1); if the server
+    has never been online, or the last attempt failed, the previously saved
+    offset simply keeps being used."""
+
+    offset_seconds = models.FloatField(default=0)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_sync_ok = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Time Sync'
+        verbose_name_plural = 'Time Sync'
+
+    def __str__(self) -> str:
+        return f'offset {self.offset_seconds:+.1f}s (last synced {self.last_synced_at or "never"})'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # singleton
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        pass  # never delete the singleton
+
+    @classmethod
+    def load(cls) -> 'TimeSync':
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

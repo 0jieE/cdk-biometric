@@ -7,10 +7,10 @@ from datetime import date as date_cls
 from datetime import datetime, timedelta
 
 from celery import shared_task
-from django.utils import timezone
 
 from apps.organization.models import Employee, Holiday
 from apps.organization.schedule import get_effective_schedule
+from apps.organization.trusted_time import refresh_offset, trusted_localdate, trusted_now
 
 from .models import Absence
 from .services import process_day, sync_attendance
@@ -24,11 +24,16 @@ def sync_attendance_task():
     process today's derived rows + notifications."""
     from apps.devices.models import BiometricDevice
 
+    try:
+        refresh_offset()  # piggyback the trusted-time check on this interval
+    except Exception:
+        logger.exception('Trusted-time refresh failed; keeping the last known offset.')
+
     device = BiometricDevice.objects.filter(is_active=True).first()
-    since = timezone.now() - timedelta(days=1)
+    since = trusted_now() - timedelta(days=1)
     summary = sync_attendance(device=device, since=since)
 
-    process_daily_attendance_task(timezone.localdate().isoformat())
+    process_daily_attendance_task(trusted_localdate().isoformat())
     logger.info('sync_attendance_task done: %s', summary)
     return summary
 

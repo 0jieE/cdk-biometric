@@ -18,6 +18,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.devices.models import MobileDevice
 from apps.notifications.models import Notification
+from apps.organization.trusted_time import trusted_localdate
 
 from .permissions import IsEmployeeUser
 from .usernames import UNAVAILABLE_MESSAGE
@@ -168,7 +169,7 @@ class AttendanceListView(APIView):
     permission_classes = [IsEmployeeUser]
 
     def get(self, request):
-        today = timezone.localdate()
+        today = trusted_localdate()
         start = _parse_date(request.query_params.get('start')) or (today - timedelta(days=30))
         end = _parse_date(request.query_params.get('end')) or today
         if start > end:
@@ -192,7 +193,7 @@ class AttendanceSummaryView(APIView):
     permission_classes = [IsEmployeeUser]
 
     def get(self, request):
-        today = timezone.localdate()
+        today = trusted_localdate()
         month_param = request.query_params.get('month')
         year, month = today.year, today.month
         if month_param:

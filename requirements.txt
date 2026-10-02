@@ -19,6 +19,7 @@ pyzk>=0.9
 # Utilities
 python-dateutil>=2.9
 Pillow>=10.4
+requests>=2.31  # trusted-time check against an online source (was transitive via firebase-admin)
 
 # --- Phase 2: async, reports, push ---
 # Celery + Redis broker + DB-backed editable schedule

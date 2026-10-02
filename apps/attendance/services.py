@@ -25,6 +25,7 @@ from django.utils import timezone
 from apps.devices.clients import RawPunch, get_device_client
 from apps.organization.models import Employee, Holiday
 from apps.organization.schedule import get_effective_schedule
+from apps.organization.trusted_time import trusted_now
 
 from .models import (
     Absence,
@@ -51,7 +52,7 @@ def session_is_open(target_date: date_cls, sched_out: time, now=None) -> bool:
     """True while a session can still be completed: its day is today and the
     scheduled time out has not been reached (or the day is still ahead). An open,
     incomplete session is undecided - never absent, never 'missing a punch'."""
-    now = timezone.localtime(now) if now else timezone.localtime()
+    now = timezone.localtime(now) if now else timezone.localtime(trusted_now())
     today = now.date()
     if target_date != today:
         return target_date > today

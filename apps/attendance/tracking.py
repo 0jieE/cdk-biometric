@@ -18,6 +18,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Min
 from django.utils import timezone
 
+from apps.organization.trusted_time import trusted_localdate
+
 from .models import AttendanceLog
 
 
@@ -40,7 +42,7 @@ def system_start() -> date_cls:
     if configured is not None:
         return configured
     first = AttendanceLog.objects.aggregate(first=Min('log_datetime'))['first']
-    return timezone.localtime(first).date() if first else timezone.localdate()
+    return timezone.localtime(first).date() if first else trusted_localdate()
 
 
 def employee_floor(employee) -> date_cls:

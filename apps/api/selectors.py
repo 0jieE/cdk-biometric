@@ -20,6 +20,7 @@ from apps.attendance.services import session_is_open
 from apps.attendance.tracking import tracking_start
 from apps.organization.models import Holiday
 from apps.organization.schedule import get_effective_schedule
+from apps.organization.trusted_time import trusted_localdate
 
 DAY_PRESENT = 'PRESENT'
 DAY_LATE = 'LATE'
@@ -44,7 +45,7 @@ def _reduce_logs(logs):
 
 def build_daily_attendance(employee, start: date_cls, end: date_cls) -> list[dict]:
     sched = get_effective_schedule(employee)
-    today = timezone.localdate()
+    today = trusted_localdate()
 
     day_start = timezone.make_aware(datetime.combine(start, time.min))
     day_end = timezone.make_aware(datetime.combine(end, time.min)) + timedelta(days=1)

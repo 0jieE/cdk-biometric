@@ -37,6 +37,7 @@ from apps.organization.models import (
     Holiday,
 )
 from apps.organization.schedule import get_effective_schedule
+from apps.organization.trusted_time import trusted_localdate, trusted_now
 from apps.reports.models import ReportJob
 from apps.reports.tasks import generate_report_task
 
@@ -110,7 +111,7 @@ def dashboard(request):
 
     from django.conf import settings
 
-    today = timezone.localdate()
+    today = trusted_localdate()
     day_start = timezone.make_aware(datetime.combine(today, time.min))
     day_end = day_start + timedelta(days=1)
 
@@ -198,7 +199,7 @@ def _attendance_rows(start, end, department_id=None, employee_id=None, status=No
 def _attendance_filters(request):
     # NB: use date_start / date_end (NOT start/end) — DataTables reserves the
     # `start` and `length` GET params for server-side paging.
-    today = timezone.localdate()
+    today = trusted_localdate()
     return {
         'start': _parse_date(request.GET.get('date_start'), today - timedelta(days=7)),
         'end': _parse_date(request.GET.get('date_end'), today),
@@ -380,7 +381,7 @@ def _top_lost_employees(start, end, limit=5):
 
 @admin_required
 def lates(request):
-    today = timezone.localdate()
+    today = trusted_localdate()
     start = _parse_date(request.GET.get('start'), today.replace(day=1))
     end = _parse_date(request.GET.get('end'), today)
     dept_id = request.GET.get('department') or None
@@ -418,7 +419,7 @@ def lates(request):
 # ---------------------------------------------------------------------------
 @admin_required
 def absences(request):
-    today = timezone.localdate()
+    today = trusted_localdate()
     start = _parse_date(request.GET.get('start'), today.replace(day=1))
     end = _parse_date(request.GET.get('end'), today)
     dept_id = request.GET.get('department') or None
@@ -546,7 +547,7 @@ def _employee_performance(employee):
     A 30-day window drives the headline rates; a 6-month series drives the trend
     bars; the last two weeks feed the recent-activity list.
     """
-    today = timezone.localdate()
+    today = trusted_localdate()
     window_start = today - timedelta(days=29)
     records = build_daily_attendance(employee, window_start, today)
 
@@ -700,7 +701,7 @@ def _build_calendar(year, month):
         if grid_start <= h.date <= grid_end:
             exact.setdefault(h.date, []).append(h)
 
-    today = timezone.localdate()
+    today = trusted_localdate()
     out_weeks = []
     for week in weeks:
         cells = []
@@ -724,7 +725,7 @@ def _build_calendar(year, month):
 def holidays(request):
     import calendar as _cal
 
-    today = timezone.localdate()
+    today = trusted_localdate()
     try:
         year = int(request.GET.get('year') or today.year)
         month = int(request.GET.get('month') or today.month)
@@ -820,7 +821,7 @@ def holiday_import(request):
 
     if request.method != 'POST':
         return HttpResponse(status=405)
-    today = timezone.localdate()
+    today = trusted_localdate()
     try:
         year = int(request.GET.get('year') or today.year)
     except (TypeError, ValueError):
@@ -1093,7 +1094,7 @@ def manual_attendance(request):
         form = ManualAttendanceForm(request.POST)
         if form.is_valid():
             cd = form.cleaned_data
-            now = timezone.localtime()  # date + time default to now
+            now = timezone.localtime(trusted_now())  # date + time default to now
             log, _created = AttendanceLog.objects.update_or_create(
                 employee=cd['employee'], log_datetime=now, log_type=cd['log_type'],
                 defaults={'source': AttendanceLog.Source.MANUAL,
@@ -1138,7 +1139,7 @@ def live_logs_feed(request):
     if not _live_enabled():
         raise Http404()
 
-    today = timezone.localdate()
+    today = trusted_localdate()
     day_start = timezone.make_aware(datetime.combine(today, time.min))
     day_end = day_start + timedelta(days=1)
 

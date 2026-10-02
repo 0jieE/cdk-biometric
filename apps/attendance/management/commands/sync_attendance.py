@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from apps.attendance.services import sync_attendance
 from apps.devices.models import BiometricDevice
+from apps.organization.trusted_time import trusted_now
 
 
 class Command(BaseCommand):
@@ -35,7 +36,7 @@ class Command(BaseCommand):
                 raise CommandError('--since must be YYYY-MM-DD')
             since = timezone.make_aware(parsed)
         else:
-            since = timezone.now() - timedelta(days=options['days'])
+            since = trusted_now() - timedelta(days=options['days'])
 
         device = BiometricDevice.objects.filter(is_active=True).first()
 

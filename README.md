@@ -445,6 +445,35 @@ move the start too far back. Days that have real punches always show.
 
 ---
 
+# Trusted time (clock-drift correction)
+
+Deciding whether a session is still `PENDING` or has become `ABSENT`, and what
+"today" is everywhere in the API/portal, used to come straight from this
+server's own system clock. If that clock drifts (a wrong VM/container clock, a
+missed NTP sync, a manual change), attendance decisions drift with it.
+
+`apps.organization.trusted_time` checks this server's clock against an
+internet time source (any HTTPS server's `Date` response header — defaults to
+`https://www.google.com`) and saves the gap (`TimeSync`, a singleton row,
+visible in Django admin). `trusted_now()` / `trusted_localdate()` are what
+attendance decisions and "today" displays use instead of
+`timezone.now()`/`timezone.localdate()` — they apply that saved gap to this
+server's clock.
+
+The check piggybacks on the periodic attendance sync (every
+`SYNC_INTERVAL_MINUTES`), so nothing extra needs scheduling. **When offline**,
+the check simply fails and the **last known-good gap keeps being used** — it
+is never reset to 0 just because the internet is briefly unreachable.
+
+```bash
+python manage.py sync_time   # check immediately, e.g. right after deploying
+```
+
+New env (optional): `TRUSTED_TIME_URL` (default `https://www.google.com`),
+`TRUSTED_TIME_TIMEOUT` (seconds, default `3`).
+
+---
+
 # Demo data for testing reports
 
 To test reports (and the mobile app) against a full, varied month, seed **fake**

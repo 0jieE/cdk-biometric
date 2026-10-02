@@ -6,6 +6,7 @@ from .models import (
     EmployeeSchedule,
     GlobalSchedule,
     Holiday,
+    TimeSync,
 )
 
 
@@ -54,3 +55,16 @@ class HolidayAdmin(admin.ModelAdmin):
     list_filter = ('type', 'is_recurring')
     search_fields = ('name',)
     date_hierarchy = 'date'
+
+
+@admin.register(TimeSync)
+class TimeSyncAdmin(admin.ModelAdmin):
+    """Read-only: refreshed automatically by the periodic attendance sync."""
+    list_display = ('offset_seconds', 'last_synced_at', 'last_sync_ok')
+    readonly_fields = ('offset_seconds', 'last_synced_at', 'last_sync_ok')
+
+    def has_add_permission(self, request):
+        return not TimeSync.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False

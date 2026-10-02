@@ -1,11 +1,12 @@
 """Schedule resolver tests."""
 
-from datetime import date, time
+from datetime import date, time, timedelta
 from io import StringIO
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.attendance.models import OTAuthorization
 from apps.organization.models import (
@@ -14,6 +15,7 @@ from apps.organization.models import (
     EmployeeSchedule,
     GlobalSchedule,
     Holiday,
+    TimeSync,
 )
 from apps.organization.schedule import get_effective_schedule
 
@@ -162,3 +164,87 @@ class CleanupSeedArtifactsTests(TestCase):
         self._run()
         self._run()
         self.assertEqual(Holiday.objects.count(), 2)
+
+
+class TrustedTimeTests(TestCase):
+    """The server's own clock can drift; attendance 'now' should be corrected
+    against an online source, and keep using the last known-good correction
+    when that source is unreachable."""
+
+    def _mock_response(self, when):
+        from email.utils import format_datetime
+        from unittest.mock import Mock
+        resp = Mock()
+        resp.headers = {'Date': format_datetime(when, usegmt=True)}
+        return resp
+
+    def test_no_sync_yet_means_zero_offset(self):
+        from apps.organization.trusted_time import trusted_now
+        self.assertFalse(TimeSync.objects.exists())
+        delta = (trusted_now() - timezone.now()).total_seconds()
+        self.assertLess(abs(delta), 1)
+
+    def test_successful_sync_saves_the_offset(self):
+        from unittest.mock import patch
+        from apps.organization.trusted_time import refresh_offset, trusted_now
+
+        online_time = timezone.now() + timedelta(seconds=120)   # server is 2 min behind
+        with patch('requests.head', return_value=self._mock_response(online_time)):
+            ok = refresh_offset()
+        self.assertTrue(ok)
+
+        sync = TimeSync.load()
+        self.assertTrue(sync.last_sync_ok)
+        self.assertIsNotNone(sync.last_synced_at)
+        self.assertAlmostEqual(sync.offset_seconds, 120, delta=2)
+
+        delta = (trusted_now() - timezone.now()).total_seconds()
+        self.assertAlmostEqual(delta, 120, delta=2)
+
+    def test_unreachable_source_keeps_the_last_known_offset(self):
+        from unittest.mock import patch
+        from apps.organization.trusted_time import refresh_offset
+
+        online_time = timezone.now() + timedelta(seconds=300)
+        with patch('requests.head', return_value=self._mock_response(online_time)):
+            refresh_offset()
+        saved = TimeSync.load().offset_seconds
+
+        with patch('requests.head', side_effect=ConnectionError('offline')):
+            ok = refresh_offset()
+        self.assertFalse(ok)
+
+        sync = TimeSync.load()
+        self.assertFalse(sync.last_sync_ok)
+        self.assertEqual(sync.offset_seconds, saved)   # unchanged - last known good is kept
+
+    def test_never_synced_and_unreachable_stays_at_zero(self):
+        from unittest.mock import patch
+        from apps.organization.trusted_time import refresh_offset, trusted_now
+
+        with patch('requests.head', side_effect=ConnectionError('offline')):
+            ok = refresh_offset()
+        self.assertFalse(ok)
+        delta = (trusted_now() - timezone.now()).total_seconds()
+        self.assertLess(abs(delta), 1)
+
+
+class SyncTimeCommandTests(TestCase):
+    def test_reports_success(self):
+        from email.utils import format_datetime
+        from unittest.mock import Mock, patch
+
+        resp = Mock()
+        resp.headers = {'Date': format_datetime(timezone.now() + timedelta(seconds=5), usegmt=True)}
+        out = StringIO()
+        with patch('requests.head', return_value=resp):
+            call_command('sync_time', stdout=out)
+        self.assertIn('Synced', out.getvalue())
+
+    def test_reports_failure_without_crashing(self):
+        from unittest.mock import patch
+
+        out = StringIO()
+        with patch('requests.head', side_effect=ConnectionError('offline')):
+            call_command('sync_time', stdout=out)
+        self.assertIn('Could not reach', out.getvalue())

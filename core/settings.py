@@ -233,6 +233,12 @@ ZK_DEVICE_TIMEOUT = env('ZK_DEVICE_TIMEOUT')
 # reported present/absent. Blank => auto (day of the earliest recorded punch).
 ATTENDANCE_START_DATE = env('ATTENDANCE_START_DATE', default='')
 
+# Trusted-time check (apps.organization.trusted_time): an HTTPS server whose
+# Date response header is used to correct for this server's own clock drift.
+# Any reachable HTTPS server works; Google is a safe default (always up).
+TRUSTED_TIME_URL = env('TRUSTED_TIME_URL', default='https://www.google.com')
+TRUSTED_TIME_TIMEOUT = env.int('TRUSTED_TIME_TIMEOUT', default=3)
+
 # Admin password used by the seed_data command (printed on seed).
 ADMIN_PASSWORD = env('ADMIN_PASSWORD', default='admin12345')
 

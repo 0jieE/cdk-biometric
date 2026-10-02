@@ -18,11 +18,11 @@ left to the live job, so ``--until`` defaults to yesterday.
 from datetime import date, timedelta
 
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
 
 from apps.attendance.services import process_day
 from apps.attendance.tracking import employee_floor, system_start
 from apps.organization.models import Employee
+from apps.organization.trusted_time import trusted_localdate
 
 
 def _parse(value, flag):
@@ -50,7 +50,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         since = _parse(options['since'], '--since') if options['since'] else system_start()
         until = (_parse(options['until'], '--until') if options['until']
-                 else timezone.localdate() - timedelta(days=1))
+                 else trusted_localdate() - timedelta(days=1))
         if since > until:
             self.stdout.write(f'Nothing to do: {since} is after {until}.')
             return
