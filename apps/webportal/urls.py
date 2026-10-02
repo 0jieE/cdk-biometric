@@ -27,6 +27,7 @@ urlpatterns = [
     path('employees/<int:pk>/edit/', views.employee_form, name='employee_edit'),
     path('employees/<int:pk>/account/', views.employee_account, name='employee_account'),
     path('employees/<int:pk>/deactivate/', views.employee_deactivate, name='employee_deactivate'),
+    path('employees/<int:pk>/reactivate/', views.employee_reactivate, name='employee_reactivate'),
 
     # Departments
     path('departments/', views.departments, name='departments'),

@@ -73,6 +73,13 @@ class ApiAttendanceTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn('access', resp.data)
 
+    def test_deactivated_employee_cannot_log_in(self):
+        self.user_a.is_active = False
+        self.user_a.save(update_fields=['is_active'])
+        resp = APIClient().post('/api/v1/auth/login/',
+                                {'username': 'alice', 'password': PASSWORD}, format='json')
+        self.assertEqual(resp.status_code, 401)
+
     def test_me_includes_employment_type(self):
         resp = self._login('alice').get('/api/v1/me/')
         self.assertEqual(resp.data['employee_no'], 'EMP-A')

@@ -19,6 +19,10 @@
     <button class="btn btn-brand btn-sm" hx-get="{% url 'webportal:employee_create' %}" hx-target="#modalContent">
       <i class="bi bi-plus-lg"></i> New Employee</button>
   </div>
+  <ul class="nav nav-tabs mt-3" id="emp-status">
+    <li class="nav-item"><button type="button" class="nav-link active" data-status="active">Active</button></li>
+    <li class="nav-item"><button type="button" class="nav-link" data-status="inactive">Deactivated</button></li>
+  </ul>
 </div></div>
 
 <div id="list" hx-get="{% url 'webportal:employees' %}" hx-target="#list" hx-trigger="load, refreshList from:body">
@@ -35,12 +39,15 @@
     var dept = (document.getElementById('emp-dept') || {}).value || '';
     var typeBtn = document.querySelector('#emp-type .active');
     var type = typeBtn ? typeBtn.getAttribute('data-type') : '';
+    var statusBtn = document.querySelector('#emp-status .active');
+    var status = statusBtn ? statusBtn.getAttribute('data-status') : 'active';
     var shown = 0, cards = document.querySelectorAll('.emp-card');
     cards.forEach(function (c) {
       var okQ = !q || c.dataset.search.indexOf(q) !== -1;
       var okD = !dept || c.dataset.dept === dept;
       var okT = !type || c.dataset.type === type;
-      var vis = okQ && okD && okT;
+      var okS = c.dataset.status === status;
+      var vis = okQ && okD && okT && okS;
       c.style.display = vis ? '' : 'none';
       if (vis) shown++;
     });
@@ -61,6 +68,13 @@
     var b = e.target.closest('#emp-type [data-type]');
     if (!b) return;
     document.querySelectorAll('#emp-type [data-type]').forEach(function (x) { x.classList.remove('active'); });
+    b.classList.add('active');
+    filter();
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('#emp-status [data-status]');
+    if (!b) return;
+    document.querySelectorAll('#emp-status [data-status]').forEach(function (x) { x.classList.remove('active'); });
     b.classList.add('active');
     filter();
   });

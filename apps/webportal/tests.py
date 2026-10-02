@@ -264,3 +264,77 @@ class DeviceTestConnectionTests(TestCase):
         self.client.get(reverse('webportal:device_test', args=[other.pk]))
 
         get_client.assert_called_once_with(ip='192.168.1.9', port=4370)
+
+
+class EmployeeDeactivationTests(TestCase):
+    """Deactivating is one switch (employee + login together), not a separate
+    "disable login" that left attendance/headcount untouched."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.emp = Employee.objects.create(
+            employee_no='DA-1', first_name='De', last_name='Active',
+            department=dept, biometric_id='9501', is_fulltime=True)
+        cls.admin = User.objects.create(username='admin5', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+        _provision_employee_account(cls.emp)
+
+    def setUp(self):
+        self.client.login(username='admin5', password=PASSWORD)
+
+    def test_deactivate_turns_off_both_employee_and_login(self):
+        self.client.post(reverse('webportal:employee_deactivate', args=[self.emp.pk]))
+        self.emp.refresh_from_db()
+        self.assertFalse(self.emp.is_active)
+        self.assertFalse(User.objects.get(employee=self.emp).is_active)
+
+    def test_reactivate_turns_both_back_on(self):
+        self.client.post(reverse('webportal:employee_deactivate', args=[self.emp.pk]))
+        self.client.post(reverse('webportal:employee_reactivate', args=[self.emp.pk]))
+        self.emp.refresh_from_db()
+        self.assertTrue(self.emp.is_active)
+        self.assertTrue(User.objects.get(employee=self.emp).is_active)
+
+    def test_deactivated_employee_drops_out_of_the_headcount(self):
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertEqual(resp.context['total_employees'], 1)
+        self.client.post(reverse('webportal:employee_deactivate', args=[self.emp.pk]))
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertEqual(resp.context['total_employees'], 0)
+
+    def test_the_account_modal_offers_deactivate_then_reactivate(self):
+        resp = self.client.get(reverse('webportal:employee_account', args=[self.emp.pk]))
+        self.assertContains(resp, 'Deactivate account')
+        self.client.post(reverse('webportal:employee_deactivate', args=[self.emp.pk]))
+        resp = self.client.get(reverse('webportal:employee_account', args=[self.emp.pk]))
+        self.assertContains(resp, 'Reactivate account')
+        self.assertNotContains(resp, 'Deactivate account')
+
+    def test_disable_and_enable_are_no_longer_actions_on_the_account_endpoint(self):
+        # Old "disable login" only ever touched the account, never the employee
+        # or the headcount - that split behaviour is gone; these actions are now
+        # no-ops (the view falls through and just re-triggers a refresh).
+        self.client.post(reverse('webportal:employee_account', args=[self.emp.pk]),
+                         {'action': 'disable'})
+        self.assertTrue(User.objects.get(employee=self.emp).is_active)
+        self.assertTrue(Employee.objects.get(pk=self.emp.pk).is_active)
+
+    def test_employees_page_separates_active_from_deactivated(self):
+        other = Employee.objects.create(
+            employee_no='DA-2', first_name='Still', last_name='Here',
+            department=self.emp.department, biometric_id='9502', is_fulltime=True)
+        self.client.post(reverse('webportal:employee_deactivate', args=[self.emp.pk]))
+        # The cards (and their data-status) are loaded via the htmx partial,
+        # not the initial page shell.
+        resp = self.client.get(reverse('webportal:employees'), headers={'HX-Request': 'true'})
+        self.assertContains(resp, 'data-status="inactive"')
+        self.assertContains(resp, 'data-status="active"')
+        # Both employees are in the payload for the client-side tabs to split -
+        # the deactivated one just carries the "inactive" status.
+        body = resp.content.decode()
+        self.assertIn(self.emp.employee_no, body)
+        self.assertIn(other.employee_no, body)

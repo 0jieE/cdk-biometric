@@ -498,17 +498,34 @@ def _provision_employee_account(employee):
     user.save()
 
 
-@admin_required
-def employee_deactivate(request, pk):
-    employee = get_object_or_404(Employee, pk=pk)
-    employee.is_active = False
+def _set_employee_active(employee, active: bool):
+    """Deactivating is one switch, not two: the employee and their login move
+    together. A deactivated employee keeps every past record (nothing is
+    deleted), but stops counting as an employee, can't sign in to the mobile
+    app, and - since ``ingest_punches`` only recognises active employees by
+    biometric_id - their device punches are no longer recorded either."""
+    employee.is_active = active
     employee.save(update_fields=['is_active'])
     linked = User.objects.filter(employee=employee).first()
     if linked:
-        linked.is_active = False
+        linked.is_active = active
         linked.save(update_fields=['is_active'])
+
+
+@admin_required
+def employee_deactivate(request, pk):
+    employee = get_object_or_404(Employee, pk=pk)
+    _set_employee_active(employee, False)
     messages.success(request, f'{employee.full_name} deactivated.')
-    return _trigger('refreshList', 'refreshProfile')
+    return _trigger('refreshList', 'refreshProfile', 'closeModal')
+
+
+@admin_required
+def employee_reactivate(request, pk):
+    employee = get_object_or_404(Employee, pk=pk)
+    _set_employee_active(employee, True)
+    messages.success(request, f'{employee.full_name} reactivated.')
+    return _trigger('refreshList', 'refreshProfile', 'closeModal')
 
 
 # --- Employee profile + performance analytics -------------------------------
@@ -604,14 +621,6 @@ def employee_account(request, pk):
             account.set_password(DEFAULT_EMPLOYEE_PASSWORD)
             account.save()
             messages.success(request, f'Password reset to the default for {employee.full_name}.')
-        elif account and action == 'disable':
-            account.is_active = False
-            account.save(update_fields=['is_active'])
-            messages.success(request, 'Login disabled.')
-        elif account and action == 'enable':
-            account.is_active = True
-            account.save(update_fields=['is_active'])
-            messages.success(request, 'Login enabled.')
         return _trigger('refreshProfile', 'closeModal')
 
     return render(request, 'webportal/partials/employee_account.html', {

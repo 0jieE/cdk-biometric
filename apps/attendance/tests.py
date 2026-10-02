@@ -185,6 +185,22 @@ class AfterHoursIngestionTests(_FullTimeBase):
         self.assertTrue(pm_absence.incomplete)
 
 
+class DeactivatedEmployeeIngestionTests(_FullTimeBase):
+    """A deactivated employee's own fingerprint punches must never be recorded
+    - ingest_punches only recognises active employees by biometric_id, so a
+    deactivated badge reads as 'unknown' rather than attendance."""
+
+    def test_punch_is_silently_skipped_once_deactivated(self):
+        self.emp.is_active = False
+        self.emp.save(update_fields=['is_active'])
+        summary = ingest_punches([
+            RawPunch(biometric_id='3001', timestamp=aware(WORKDAY, time(8, 0))),
+        ])
+        self.assertEqual(summary['created'], 0)
+        self.assertEqual(summary['skipped'], 1)
+        self.assertFalse(AttendanceLog.objects.exists())
+
+
 class BackfillCommandTests(_FullTimeBase):
     """`backfill_attendance` fills in the derived rows for days the daily job
     never ran (stack down), without notifying anyone about old days."""
