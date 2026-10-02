@@ -22,7 +22,6 @@ env = environ.Env(
     CORS_ALLOWED_ORIGINS=(list, []),
     CSRF_TRUSTED_ORIGINS=(list, []),
     DB_PORT=(int, 3306),
-    ZK_DEVICE_PORT=(int, 4370),
     ZK_DEVICE_TIMEOUT=(int, 10),
     SYNC_INTERVAL_MINUTES=(int, 5),
 )
@@ -224,9 +223,10 @@ USE_X_FORWARDED_HOST = True
 # Biometric device layer
 # ---------------------------------------------------------------------------
 # 'mock' for development (no hardware) | 'zk' for a real ZKTeco unit.
+# The unit's IP/port are NOT env vars - they come from the active
+# BiometricDevice on the Devices page (apps.devices.clients.factory), so
+# changing hardware never needs a redeploy.
 BIOMETRIC_DEVICE_BACKEND = env('BIOMETRIC_DEVICE_BACKEND', default='mock')
-ZK_DEVICE_IP = env('ZK_DEVICE_IP', default='192.168.1.201')
-ZK_DEVICE_PORT = env('ZK_DEVICE_PORT')
 ZK_DEVICE_TIMEOUT = env('ZK_DEVICE_TIMEOUT')
 
 # First day real attendance was recorded (YYYY-MM-DD). Days before it are never

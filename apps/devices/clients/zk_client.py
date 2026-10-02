@@ -28,8 +28,12 @@ def _aware(ts: datetime) -> datetime:
 class ZKDeviceClient(BaseDeviceClient):
     def __init__(self, ip: str | None = None, port: int | None = None,
                  timeout: int | None = None):
-        self.ip = ip or settings.ZK_DEVICE_IP
-        self.port = port or settings.ZK_DEVICE_PORT
+        if not ip:
+            raise ValueError(
+                'ZKDeviceClient requires ip - pass it explicitly, or configure '
+                'the active device on the Devices page.')
+        self.ip = ip
+        self.port = port or 4370
         self.timeout = timeout or settings.ZK_DEVICE_TIMEOUT
 
     @contextmanager

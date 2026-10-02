@@ -206,14 +206,13 @@ The app talks to the backend over your **host LAN IP**, not `localhost`
 
 Development uses the mock backend. To use the physical unit:
 
-1. In `.env.docker` set:
-   ```
-   BIOMETRIC_DEVICE_BACKEND=zk
-   ZK_DEVICE_IP=<device-ip-on-your-LAN>
-   ```
-2. Restart the services that talk to the device:
+1. In `.env.docker` set `BIOMETRIC_DEVICE_BACKEND=zk`.
+2. Set the unit's IP on the **Devices** page in the portal (Devices → edit the
+   device, or add one) — not in `.env.docker`. This is the only place the
+   address lives, so changing hardware is an edit there, not a redeploy.
+3. Restart the services that talk to the device:
    ```bash
-   docker compose up -d web celery_worker
+   docker compose up -d web celery_worker attendance_listener
    ```
 
 The device sits on the LAN; containers reach it by IP (Docker Desktop on Windows

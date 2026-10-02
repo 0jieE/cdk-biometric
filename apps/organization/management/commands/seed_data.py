@@ -134,9 +134,11 @@ class Command(BaseCommand):
             admin.save()
 
         # Biometric device
+        # Placeholder address - a one-time bootstrap value. The real IP is set
+        # (and kept, across reseeds) on the Devices page, never from an env var.
         _, dev_created = BiometricDevice.objects.get_or_create(
             name='Main Entrance ZKTeco',
-            defaults={'ip_address': settings.ZK_DEVICE_IP, 'port': settings.ZK_DEVICE_PORT,
+            defaults={'ip_address': '192.168.1.201', 'port': 4370,
                       'location': 'Main Building Lobby', 'serial_no': 'ZK-SIM-0001',
                       'is_active': True})
         created['devices'] += int(dev_created)

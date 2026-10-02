@@ -140,8 +140,11 @@ def assign_parttime_punches(times) -> dict:
 # ---------------------------------------------------------------------------
 def sync_attendance(device=None, since: datetime | None = None) -> dict:
     """Pull punches via the configured backend and ingest them (classify, store,
-    fire immediate per-punch notifications, recompute days)."""
-    client = get_device_client()
+    fire immediate per-punch notifications, recompute days). Connects to
+    ``device``'s own address when given, else the active device on the
+    Devices page (see ``get_device_client``)."""
+    client = get_device_client(ip=device.ip_address if device else None,
+                               port=device.port if device else None)
     raw_punches: list[RawPunch] = client.fetch_attendance(since)
 
     summary = ingest_punches(raw_punches, device=device)

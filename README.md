@@ -252,13 +252,13 @@ To go live on real hardware, change **one env variable** in `.env`:
 + BIOMETRIC_DEVICE_BACKEND=zk
 ```
 
-and point the `ZK_DEVICE_*` values at your unit:
-
-```
-ZK_DEVICE_IP=192.168.1.201
-ZK_DEVICE_PORT=4370
-ZK_DEVICE_TIMEOUT=10
-```
+The unit's **IP and port are not an env var** — they come from the active
+device on the **Devices** page in the portal. Add/edit it there (or run
+`seed_data` once to create a placeholder row, then edit its address). Changing
+it takes effect immediately on the next sync/listener run — no redeploy. A
+device's own "Test connection" button always checks that device's address,
+regardless of which one is marked active. If `zk` is selected and no device is
+marked active, the sync fails clearly instead of guessing an address.
 
 Then `python manage.py sync_attendance` pulls from the physical device instead of
 the simulator. No code changes required.

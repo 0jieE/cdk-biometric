@@ -28,8 +28,9 @@ class Command(BaseCommand):
         backend = getattr(settings, 'BIOMETRIC_DEVICE_BACKEND', 'mock')
         self.stdout.write(f'Device backend: {backend}')
 
-        client = get_device_client()
         device = BiometricDevice.objects.filter(is_active=True).first()
+        client = get_device_client(ip=device.ip_address if device else None,
+                                   port=device.port if device else None)
 
         try:
             stream = client.live_capture()

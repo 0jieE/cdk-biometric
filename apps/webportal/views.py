@@ -874,7 +874,9 @@ def device_sync(request, pk):
 def device_test(request, pk):
     device = get_object_or_404(BiometricDevice, pk=pk)
     try:
-        ok = get_device_client().test_connection()
+        # This device's own address - not necessarily whichever one is "active" -
+        # so Test always checks the device the admin actually clicked.
+        ok = get_device_client(ip=device.ip_address, port=device.port).test_connection()
     except Exception:
         ok = False
     return render(request, 'webportal/partials/device_test.html',

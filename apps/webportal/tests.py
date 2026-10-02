@@ -9,6 +9,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.attendance.models import AttendanceLog, OTAuthorization
+from apps.devices.models import BiometricDevice
 from apps.organization.models import Department, Employee, GlobalSchedule
 from apps.reports.models import ReportJob
 from apps.webportal.views import _provision_employee_account
@@ -237,3 +238,29 @@ class ScheduleMidpointFormTests(TestCase):
         resp = self._post('18:00')
         self.assertContains(resp, 'Must fall between')
         self.assertEqual(GlobalSchedule.load().midpoint, time(12, 30))
+
+
+class DeviceTestConnectionTests(TestCase):
+    """The per-device "Test connection" button must check THAT device's own
+    address, not whichever device happens to be marked active."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create(username='admin4', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+    def setUp(self):
+        self.client.login(username='admin4', password=PASSWORD)
+
+    @patch('apps.webportal.views.get_device_client')
+    def test_tests_the_clicked_device_s_own_address(self, get_client):
+        active = BiometricDevice.objects.create(
+            name='Active', ip_address='192.168.1.3', port=4370, is_active=True)
+        other = BiometricDevice.objects.create(
+            name='Other', ip_address='192.168.1.9', port=4370, is_active=False)
+
+        self.client.get(reverse('webportal:device_test', args=[other.pk]))
+
+        get_client.assert_called_once_with(ip='192.168.1.9', port=4370)
