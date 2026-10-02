@@ -6,11 +6,10 @@ class ReportJob(models.Model):
     """Tracks an async report generation request and its resulting file."""
 
     class ReportType(models.TextChoices):
-        DAILY_ATTENDANCE = 'DAILY_ATTENDANCE', 'Daily Attendance'
-        MONTHLY_SUMMARY = 'MONTHLY_SUMMARY', 'Monthly Summary'
+        # The Reports page's report: the Attendance page's table, for one employee.
+        ATTENDANCE = 'ATTENDANCE', 'Attendance'
         TARDINESS = 'TARDINESS', 'Tardiness'
         ABSENCE = 'ABSENCE', 'Absence'
-        EMPLOYEE_ATTENDANCE = 'EMPLOYEE_ATTENDANCE', 'Employee Attendance (DTR)'
 
     class Fmt(models.TextChoices):
         PDF = 'PDF', 'PDF'

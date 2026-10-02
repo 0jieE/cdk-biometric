@@ -1,6 +1,5 @@
 """Phase 8 attendance logic tests."""
 
-import re
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 from io import StringIO
@@ -556,13 +555,15 @@ class SeedDemoAttendanceTests(TestCase):
             self.assertEqual(s['half_day'], half, label)
             self.assertEqual(s['absent'], absent, label)
             self.assertEqual(s['late_minutes'], late, label)
-            # 2) the Employee Attendance (DTR) report's TOTAL row
-            _, dtr = build_report('EMPLOYEE_ATTENDANCE', 'XLSX', {
+            # 2) the Attendance report's rows
+            _, att = build_report('ATTENDANCE', 'XLSX', {
                 'employee': emp.id, 'start': '2026-07-01', 'end': '2026-07-31'})
-            total = xlsx_rows(dtr)[-1]
-            present, late_days, half_days, absent_days = (int(n) for n in re.findall(r'\d+', total[6]))
-            self.assertEqual((present + late_days, half_days, absent_days), (both, half, absent), label)
-            self.assertEqual(total[7], late, label)
+            att_rows = xlsx_rows(att)[1:]
+            statuses = [r[6] for r in att_rows]
+            self.assertEqual(statuses.count('PRESENT') + statuses.count('LATE'), both, label)
+            self.assertEqual(statuses.count('HALF DAY'), half, label)
+            self.assertEqual(statuses.count('ABSENT'), absent, label)
+            self.assertEqual(sum(r[7] for r in att_rows), late, label)
             # 3) the Tardiness report (sum of this employee's rows)
             self.assertEqual(sum(r[5] for r in tardiness_rows if r[1] == emp.employee_no), late, label)
 

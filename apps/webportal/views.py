@@ -892,8 +892,11 @@ def _recent_jobs():
     labels = {e.pk: f'{e.employee_no} · {e.full_name}'
               for e in Employee.objects.filter(pk__in=ids)}
     for job in jobs:
-        emp_id = (job.params or {}).get('employee')
+        params = job.params or {}
+        emp_id = params.get('employee')
         job.employee_label = labels.get(int(emp_id), '') if emp_id else ''
+        if params.get('start'):
+            job.detail = f"{params['start']} to {params.get('end', '')}"
     return jobs
 
 
@@ -903,7 +906,7 @@ def reports(request):
         form = ReportForm(request.POST)
         if form.is_valid():
             job = ReportJob.objects.create(
-                report_type=form.cleaned_data['report_type'],
+                report_type=ReportJob.ReportType.ATTENDANCE,
                 fmt=form.cleaned_data['fmt'],
                 params=form.to_params(),
                 requested_by=request.user,

@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django import forms
+from django.utils import timezone
 
 from apps.attendance.models import AttendanceLog, OTAuthorization
 from apps.devices.models import BiometricDevice
@@ -72,29 +75,23 @@ class _EmployeeChoiceField(forms.ModelChoiceField):
 
 
 class ReportForm(BootstrapMixin, forms.Form):
-    report_type = forms.ChoiceField(choices=ReportJob.ReportType.choices)
-    fmt = forms.ChoiceField(choices=ReportJob.Fmt.choices, label='Format')
-    department = forms.ModelChoiceField(
-        queryset=Department.objects.all(), required=False, empty_label='All departments')
+    """The Reports page: the Attendance page's table, as a PDF/Excel file."""
+
     employee = _EmployeeChoiceField(
-        queryset=Employee.objects.order_by('employee_no'), required=False,
-        empty_label='All employees',
-        help_text='Required for Employee Attendance; on the other reports it '
-                  'limits the report to this one person.')
-    date = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}),
-                           help_text='For Daily Attendance')
-    month = forms.CharField(required=False, widget=forms.DateInput(attrs={'type': 'month'}),
-                            help_text='For Monthly Summary (YYYY-MM)')
-    start = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}),
-                            help_text='For Tardiness / Absence / Employee Attendance '
-                                      '(default: this month)')
-    end = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date'}))
+        queryset=Employee.objects.order_by('employee_no'), empty_label='Select an employee')
+    start = forms.DateField(label='Start', widget=forms.DateInput(attrs={'type': 'date'}))
+    end = forms.DateField(label='End', widget=forms.DateInput(attrs={'type': 'date'}))
+    fmt = forms.ChoiceField(choices=ReportJob.Fmt.choices, label='Format')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Same default window as the Attendance page.
+        today = timezone.localdate()
+        self.fields['start'].initial = today - timedelta(days=7)
+        self.fields['end'].initial = today
 
     def clean(self):
         cd = super().clean()
-        if (cd.get('report_type') == ReportJob.ReportType.EMPLOYEE_ATTENDANCE
-                and not cd.get('employee')):
-            self.add_error('employee', 'Choose an employee for this report.')
         start, end = cd.get('start'), cd.get('end')
         if start and end:
             if start > end:
@@ -105,20 +102,9 @@ class ReportForm(BootstrapMixin, forms.Form):
 
     def to_params(self) -> dict:
         cd = self.cleaned_data
-        params = {}
-        if cd.get('date'):
-            params['date'] = cd['date'].isoformat()
-        if cd.get('month'):
-            params['month'] = cd['month']
-        if cd.get('start'):
-            params['start'] = cd['start'].isoformat()
-        if cd.get('end'):
-            params['end'] = cd['end'].isoformat()
-        if cd.get('department'):
-            params['department'] = cd['department'].id
-        if cd.get('employee'):
-            params['employee'] = cd['employee'].id
-        return params
+        return {'employee': cd['employee'].id,
+                'start': cd['start'].isoformat(),
+                'end': cd['end'].isoformat()}
 
 
 class _WorkdaysMixin:

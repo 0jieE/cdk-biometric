@@ -98,7 +98,9 @@ class PortalAccessTests(TestCase):
         self.assertEqual(self.client.get(reverse('webportal:live_feed')).status_code, 200)
 
 
-class ReportsPageEmployeeTests(TestCase):
+class ReportsPageTests(TestCase):
+    """The Reports page: employee + date range (+ format) -> Attendance report."""
+
     @classmethod
     def setUpTestData(cls):
         GlobalSchedule.load()
@@ -114,54 +116,55 @@ class ReportsPageEmployeeTests(TestCase):
     def setUp(self):
         self.client.login(username='admin2', password=PASSWORD)
 
-    def test_page_offers_the_new_report_and_an_employee_picker(self):
+    def test_page_offers_only_employee_and_date_range(self):
         resp = self.client.get(reverse('webportal:reports'))
-        self.assertContains(resp, 'Employee Attendance (DTR)')
+        self.assertEqual(list(resp.context['form'].fields),
+                         ['employee', 'start', 'end', 'fmt'])
         self.assertContains(resp, 'RP-1 — Rep Orted')
 
     @patch('apps.webportal.views.generate_report_task')
-    def test_employee_report_requires_an_employee(self, task):
+    def test_valid_request_queues_an_attendance_job(self, task):
         resp = self.client.post(reverse('webportal:reports'), {
-            'report_type': 'EMPLOYEE_ATTENDANCE', 'fmt': 'PDF'})
-        self.assertContains(resp, 'Choose an employee for this report.')
-        self.assertFalse(ReportJob.objects.exists())
-        task.delay.assert_not_called()
-
-    @patch('apps.webportal.views.generate_report_task')
-    def test_valid_request_queues_a_job_carrying_the_employee(self, task):
-        resp = self.client.post(reverse('webportal:reports'), {
-            'report_type': 'EMPLOYEE_ATTENDANCE', 'fmt': 'XLSX',
-            'employee': self.emp.id, 'start': '2026-07-01', 'end': '2026-07-31'})
+            'employee': self.emp.id, 'fmt': 'PDF',
+            'start': '2026-07-01', 'end': '2026-07-31'})
         # Success is an empty 204 that tells the page to refresh its jobs list.
         self.assertEqual(resp.status_code, 204)
         self.assertEqual(resp['HX-Trigger'], 'refreshJobs')
         job = ReportJob.objects.get()
-        self.assertEqual(job.report_type, 'EMPLOYEE_ATTENDANCE')
-        self.assertEqual(job.params['employee'], self.emp.id)
-        self.assertEqual(job.params['start'], '2026-07-01')
+        self.assertEqual(job.report_type, 'ATTENDANCE')
+        self.assertEqual(job.params, {'employee': self.emp.id,
+                                      'start': '2026-07-01', 'end': '2026-07-31'})
         task.delay.assert_called_once_with(job.id)
+
+    @patch('apps.webportal.views.generate_report_task')
+    def test_employee_and_dates_are_required(self, task):
+        resp = self.client.post(reverse('webportal:reports'), {'fmt': 'PDF'})
+        self.assertContains(resp, 'This field is required.')
+        self.assertFalse(ReportJob.objects.exists())
 
     @patch('apps.webportal.views.generate_report_task')
     def test_backwards_date_range_rejected(self, task):
         resp = self.client.post(reverse('webportal:reports'), {
-            'report_type': 'EMPLOYEE_ATTENDANCE', 'fmt': 'XLSX', 'employee': self.emp.id,
+            'employee': self.emp.id, 'fmt': 'PDF',
             'start': '2026-07-31', 'end': '2026-07-01'})
         self.assertContains(resp, 'End date must be on or after the start date.')
         self.assertFalse(ReportJob.objects.exists())
 
-    def test_jobs_list_shows_which_employee_a_job_was_for(self):
-        ReportJob.objects.create(report_type='EMPLOYEE_ATTENDANCE', fmt='PDF',
-                                 params={'employee': self.emp.id})
+    def test_jobs_list_shows_the_employee_and_range(self):
+        ReportJob.objects.create(
+            report_type='ATTENDANCE', fmt='PDF',
+            params={'employee': self.emp.id, 'start': '2026-07-01', 'end': '2026-07-31'})
         resp = self.client.get(reverse('webportal:report_jobs'))
         self.assertContains(resp, 'RP-1 · Rep Orted')
+        self.assertContains(resp, '2026-07-01 to 2026-07-31')
 
-    def test_direct_export_accepts_the_employee_param(self):
+    def test_direct_export_builds_the_attendance_report(self):
         resp = self.client.get(reverse('webportal:export'), {
-            'report_type': 'EMPLOYEE_ATTENDANCE', 'fmt': 'XLSX',
-            'employee': self.emp.id, 'start': '2026-07-06', 'end': '2026-07-08'})
+            'report_type': 'ATTENDANCE', 'fmt': 'PDF', 'employee': self.emp.id,
+            'start': '2026-07-06', 'end': '2026-07-08'})
         self.assertEqual(resp.status_code, 200)
-        self.assertIn('employee_attendance_RP-1_', resp['Content-Disposition'])
-        self.assertTrue(resp.content.startswith(b'PK'))
+        self.assertIn('attendance_RP-1_', resp['Content-Disposition'])
+        self.assertTrue(resp.content.startswith(b'%PDF'))
 
     def test_reports_page_is_admin_only(self):
         self.client.logout()

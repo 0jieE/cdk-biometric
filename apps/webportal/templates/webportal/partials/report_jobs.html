@@ -8,6 +8,7 @@
       <tr>
         <td>{{ job.id }}</td>
         <td class="small">{{ job.get_report_type_display }}
+          {% if job.detail %}<div class="text-muted">{{ job.detail }}</div>{% endif %}
           {% if job.employee_label %}<div class="text-muted">{{ job.employee_label }}</div>{% endif %}</td>
         <td>{{ job.fmt }}</td>
         <td class="small">{{ job.created_at|date:"M d, H:i" }}</td>
