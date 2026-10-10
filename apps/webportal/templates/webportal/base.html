@@ -68,6 +68,11 @@
               <span class="d-none d-sm-inline">{{ request.user.username }}</span>
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="https://dbdiagram.io/d/CDK-Biometric-69d7b96d80896296845aed6c"
+                     target="_blank" rel="noopener"><i class="bi bi-diagram-3 me-2"></i>Data Schema</a></li>
+              <li><a class="dropdown-item" href="{% url 'admin:index' %}"
+                     target="_blank" rel="noopener"><i class="bi bi-gear me-2"></i>Django Administration</a></li>
+              <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item" href="{% url 'webportal:logout' %}"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
             </ul>
           </div>

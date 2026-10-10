@@ -47,6 +47,12 @@ class PortalAccessTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Dashboard')
 
+    def test_admin_dropdown_links_to_the_schema_diagram_and_django_admin(self):
+        self.client.login(username='admin1', password=PASSWORD)
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertContains(resp, 'https://dbdiagram.io/d/CDK-Biometric-69d7b96d80896296845aed6c')
+        self.assertContains(resp, reverse('admin:index'))
+
     def test_employee_denied_admin_pages(self):
         self.client.login(username='w-1', password=PASSWORD)
         resp = self.client.get(reverse('webportal:dashboard'))

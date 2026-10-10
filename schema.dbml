@@ -1,0 +1,436 @@
+// CDK Attendance - Biometric Attendance Monitoring System
+// Data schema for https://dbdiagram.io - paste this file's contents into the
+// editor there (File > Import > DBML, or just paste into a new diagram).
+//
+// Generated from the Django models in apps/*/models.py. Table/column names
+// match the actual database (snake_case, Django's default table naming:
+// <app_label>_<modelname lowercased>).
+
+Project cdk_attendance {
+  database_type: 'MySQL'
+  Note: '''
+    Web-based Biometric Attendance Monitoring System for Colegio de Kidapawan.
+    A ZKTeco fingerprint device feeds raw punches in; they are classified into
+    AttendanceLog rows, which derive Lates / Undertime / Absence / Overtime.
+    A Django/DRF backend serves an HTMX admin portal and a Flutter mobile app.
+  '''
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// accounts - login + RBAC
+//////////////////////////////////////////////////////////////////////////////
+
+Enum user_role {
+  ADMIN
+  EMPLOYEE
+}
+
+Table accounts_user [headercolor: #6D28D9] {
+  id integer [pk, increment]
+  username varchar(150) [unique, not null]
+  password varchar(128) [not null, note: 'Django hashed password']
+  first_name varchar(150)
+  last_name varchar(150)
+  email varchar(254)
+  is_staff boolean [not null, default: false]
+  is_active boolean [not null, default: true, note: 'false = deactivated: no mobile login']
+  is_superuser boolean [not null, default: false]
+  last_login timestamp
+  date_joined timestamp [not null]
+  role user_role [not null, default: 'EMPLOYEE']
+  employee_id integer [unique, note: 'FK -> organization_employee.id; null for ADMIN accounts']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  Note: '''
+    Custom Django user (AbstractUser + role + employee).
+    ADMIN -> web portal only. EMPLOYEE -> mobile API only, 1:1 with an Employee,
+    and is_staff/is_superuser are force-cleared on save regardless of input.
+  '''
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// organization - departments, employees, schedules, holidays, trusted time
+//////////////////////////////////////////////////////////////////////////////
+
+Table organization_department [headercolor: #2563EB] {
+  id integer [pk, increment]
+  name varchar(120) [unique, not null]
+  code varchar(16) [unique, not null]
+  is_active boolean [not null, default: true]
+  banner varchar(100) [note: 'optional cover image path']
+  logo varchar(100) [note: 'optional square logo path']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table organization_employee [headercolor: #2563EB] {
+  id integer [pk, increment]
+  employee_no varchar(32) [unique, not null]
+  first_name varchar(80) [not null]
+  last_name varchar(80) [not null]
+  department_id integer [not null, note: 'FK -> organization_department.id, PROTECT']
+  position varchar(120)
+  date_hired date
+  is_active boolean [not null, default: true, note: 'false = deactivated: no attendance, no login, excluded from headcount']
+  photo varchar(100) [note: 'optional profile photo path']
+  is_fulltime boolean [not null, default: true, note: 'true = AM/PM sessions + tardiness/OT; false = single IN/OUT only']
+  biometric_id varchar(32) [unique, not null, note: 'enrollment/UID on the fingerprint device']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    biometric_id [unique]
+    employee_no [unique]
+  }
+}
+
+Table organization_globalschedule [headercolor: #2563EB] {
+  id integer [pk, note: 'singleton row, always id=1']
+  am_in time [not null, default: '08:00']
+  am_out time [not null, default: '12:00']
+  pm_in time [not null, default: '13:00']
+  pm_out time [not null, default: '17:00']
+  midpoint time [not null, default: '12:30', note: 'AM/PM punch-classification boundary']
+  grace_period_minutes integer [not null, default: 5]
+  workdays json [not null, note: 'list of weekday ints, default Mon-Fri [0,1,2,3,4]']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  Note: 'Institution-wide default schedule. Enforced single row (pk=1).'
+}
+
+Table organization_employeeschedule [headercolor: #2563EB] {
+  id integer [pk, increment]
+  employee_id integer [unique, not null, note: 'FK -> organization_employee.id, CASCADE, one override per employee']
+  am_in time [note: 'null = inherit GlobalSchedule']
+  am_out time
+  pm_in time
+  pm_out time
+  midpoint time
+  grace_period_minutes integer
+  workdays json
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  Note: 'Optional per-employee override of GlobalSchedule. Every field nullable.'
+}
+
+Enum holiday_type {
+  REGULAR
+  SPECIAL
+}
+
+Table organization_holiday [headercolor: #2563EB] {
+  id integer [pk, increment]
+  date date [unique, not null]
+  name varchar(120) [not null]
+  type holiday_type [not null, default: 'REGULAR']
+  is_recurring boolean [not null, default: false, note: 'matched by month/day every year if true']
+  color varchar(7) [not null, default: '#DC2626', note: 'hex colour on the calendar']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table organization_timesync [headercolor: #2563EB] {
+  id integer [pk, note: 'singleton row, always id=1']
+  offset_seconds float [not null, default: 0, note: 'gap between this server clock and real time']
+  last_synced_at timestamp [note: 'when the gap was last successfully measured online']
+  last_sync_ok boolean [not null, default: false]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  Note: '''
+    Corrects attendance decisions for server clock drift: checked against an
+    online time source on every sync interval; the last known-good offset is
+    kept when offline rather than reset to 0.
+  '''
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// devices - the biometric unit + employees' phones
+//////////////////////////////////////////////////////////////////////////////
+
+Table devices_biometricdevice [headercolor: #0D9488] {
+  id integer [pk, increment]
+  name varchar(120) [not null]
+  ip_address varchar(39) [not null, note: 'the single source of truth for where the ZKTeco unit lives']
+  port integer [not null, default: 4370]
+  location varchar(120)
+  serial_no varchar(64)
+  is_active boolean [not null, default: true, note: 'the active device is the one the sync/listener connect to']
+  last_synced_at timestamp
+  photo varchar(100) [note: 'optional photo of the physical unit']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Enum mobile_platform {
+  ANDROID
+  IOS
+}
+
+Table devices_mobiledevice [headercolor: #0D9488] {
+  id integer [pk, increment]
+  employee_id integer [not null, note: 'FK -> organization_employee.id, CASCADE']
+  fcm_token varchar(255) [unique, not null]
+  platform mobile_platform [not null]
+  is_active boolean [not null, default: true]
+  last_seen_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  Note: 'An employee can register multiple phones (one FCM token each).'
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// attendance - raw punches + every derived row
+//////////////////////////////////////////////////////////////////////////////
+
+Enum log_type {
+  AM_IN
+  AM_OUT
+  PM_IN
+  PM_OUT
+  OT_IN
+  OT_OUT
+  IN
+  OUT
+}
+
+Enum log_source {
+  DEVICE
+  MANUAL
+  DEMO
+}
+
+Table attendance_attendancelog [headercolor: #D97706] {
+  id integer [pk, increment]
+  employee_id integer [not null, note: 'FK -> organization_employee.id, CASCADE']
+  device_id integer [note: 'FK -> devices_biometricdevice.id, SET_NULL, null for manual/demo']
+  log_datetime timestamp [not null]
+  log_type log_type [not null]
+  raw_status integer [note: 'the device-reported punch code, if any']
+  source log_source [not null, default: 'DEVICE']
+  created_by_id integer [note: 'FK -> accounts_user.id, SET_NULL; who made a MANUAL entry']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (employee_id, log_datetime)
+    (employee_id, log_datetime, log_type) [unique]
+  }
+
+  Note: 'One classified punch. AM/midpoint/time-out rules decide log_type; see apps.attendance.services.'
+}
+
+Enum session {
+  AM
+  PM
+  FULL
+}
+
+Table attendance_lates [headercolor: #D97706] {
+  id integer [pk, increment]
+  employee_id integer [not null, note: 'FK -> organization_employee.id, CASCADE']
+  date date [not null]
+  session session [not null, default: 'AM']
+  attendance_log_id integer [not null, note: "FK -> attendance_attendancelog.id, CASCADE; the session's IN log"]
+  minutes_late integer [not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (employee_id, date, session) [unique]
+  }
+
+  Note: 'Full-time only. Exact minutes past scheduled time-in + grace.'
+}
+
+Table attendance_undertime [headercolor: #D97706] {
+  id integer [pk, increment]
+  employee_id integer [not null, note: 'FK -> organization_employee.id, CASCADE']
+  date date [not null]
+  session session [not null, default: 'AM']
+  attendance_log_id integer [not null, note: "FK -> attendance_attendancelog.id, CASCADE; the session's OUT log"]
+  minutes_undertime integer [not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (employee_id, date, session) [unique]
+  }
+
+  Note: 'Full-time only. Exact minutes left before scheduled time-out, no grace.'
+}
+
+Enum absence_reason {
+  NO_PUNCH
+  MISSING_IN
+  MISSING_OUT
+}
+
+Table attendance_absence [headercolor: #D97706] {
+  id integer [pk, increment]
+  employee_id integer [not null, note: 'FK -> organization_employee.id, CASCADE']
+  date date [not null]
+  session session [not null, default: 'FULL']
+  reason absence_reason [not null, default: 'NO_PUNCH']
+  incomplete boolean [not null, default: false, note: 'true = exactly one of IN/OUT punched (part-time)']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (employee_id, date, session) [unique]
+  }
+
+  Note: 'Supports half-day (one of AM/PM session absent) and part-time incomplete days.'
+}
+
+Table attendance_otauthorization [headercolor: #D97706] {
+  id integer [pk, increment]
+  employee_id integer [not null, note: 'FK -> organization_employee.id, CASCADE']
+  date date [not null]
+  ot_start time [not null, note: 'overtime counts only from this time']
+  ot_end_expected time
+  approved_by_id integer [note: 'FK -> accounts_user.id, SET_NULL']
+  note varchar(255)
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (employee_id, date) [unique]
+  }
+
+  Note: 'Admin-granted privilege. Overtime is ONLY ever computed when a matching row exists here.'
+}
+
+Table attendance_overtime [headercolor: #D97706] {
+  id integer [pk, increment]
+  employee_id integer [not null, note: 'FK -> organization_employee.id, CASCADE']
+  date date [not null]
+  authorization_id integer [not null, note: 'FK -> attendance_otauthorization.id, CASCADE']
+  ot_in_log_id integer [note: 'FK -> attendance_attendancelog.id, SET_NULL']
+  ot_out_log_id integer [note: 'FK -> attendance_attendancelog.id, SET_NULL']
+  minutes integer [not null, default: 0]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (employee_id, date) [unique]
+  }
+
+  Note: 'Computed minutes within the authorized window, from OT_IN/OT_OUT punches.'
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// notifications - per-employee push notifications
+//////////////////////////////////////////////////////////////////////////////
+
+Enum notification_type {
+  PUNCH
+  ATTENDANCE
+  LATE
+  ABSENCE
+  GENERAL
+}
+
+Enum notification_status {
+  PENDING
+  SENT
+  FAILED
+}
+
+Table notifications_notification [headercolor: #DB2777] {
+  id integer [pk, increment]
+  employee_id integer [not null, note: 'FK -> organization_employee.id, CASCADE']
+  attendance_log_id integer [unique, note: 'FK -> attendance_attendancelog.id, CASCADE; null for non-punch notifications']
+  title varchar(140) [not null]
+  body text
+  type notification_type [not null, default: 'GENERAL']
+  is_read boolean [not null, default: false]
+  status notification_status [not null, default: 'PENDING']
+  sent_at timestamp
+  attempts integer [not null, default: 0]
+  last_error text
+  created_at timestamp [not null]
+
+  indexes {
+    (status, sent_at)
+  }
+
+  Note: '''
+    One row per punch notification (unique on attendance_log) so re-sync never
+    double-sends; non-punch notifications (e.g. ABSENCE) have no log link.
+  '''
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// reports - async generated files
+//////////////////////////////////////////////////////////////////////////////
+
+Enum report_type {
+  ATTENDANCE
+  TARDINESS
+  ABSENCE
+}
+
+Enum report_fmt {
+  PDF
+  XLSX
+}
+
+Enum report_status {
+  PENDING
+  DONE
+  FAILED
+}
+
+Table reports_reportjob [headercolor: #7C3AED] {
+  id integer [pk, increment]
+  report_type report_type [not null]
+  fmt report_fmt [not null]
+  params json [not null, note: "e.g. {employee, start, end, department}"]
+  status report_status [not null, default: 'PENDING']
+  file varchar(100) [note: 'path under MEDIA_ROOT/reports/ once DONE']
+  error text
+  requested_by_id integer [note: 'FK -> accounts_user.id, SET_NULL']
+  created_at timestamp [not null]
+  finished_at timestamp
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// Relationships
+//////////////////////////////////////////////////////////////////////////////
+
+Ref: accounts_user.employee_id - organization_employee.id
+
+Ref: organization_employee.department_id > organization_department.id
+Ref: organization_employeeschedule.employee_id - organization_employee.id
+
+Ref: devices_mobiledevice.employee_id > organization_employee.id
+
+Ref: attendance_attendancelog.employee_id > organization_employee.id
+Ref: attendance_attendancelog.device_id > devices_biometricdevice.id
+Ref: attendance_attendancelog.created_by_id > accounts_user.id
+
+Ref: attendance_lates.employee_id > organization_employee.id
+Ref: attendance_lates.attendance_log_id > attendance_attendancelog.id
+
+Ref: attendance_undertime.employee_id > organization_employee.id
+Ref: attendance_undertime.attendance_log_id > attendance_attendancelog.id
+
+Ref: attendance_absence.employee_id > organization_employee.id
+
+Ref: attendance_otauthorization.employee_id > organization_employee.id
+Ref: attendance_otauthorization.approved_by_id > accounts_user.id
+
+Ref: attendance_overtime.employee_id > organization_employee.id
+Ref: attendance_overtime.authorization_id > attendance_otauthorization.id
+Ref: attendance_overtime.ot_in_log_id > attendance_attendancelog.id
+Ref: attendance_overtime.ot_out_log_id > attendance_attendancelog.id
+
+Ref: notifications_notification.employee_id > organization_employee.id
+Ref: notifications_notification.attendance_log_id - attendance_attendancelog.id
+
+Ref: reports_reportjob.requested_by_id > accounts_user.id
