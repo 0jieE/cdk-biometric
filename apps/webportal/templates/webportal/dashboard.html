@@ -5,38 +5,46 @@
 
 <!-- ------------------------------------------------------------- stats -- -->
 <div class="dash-stats">
-  <div class="stat-card" style="--c:var(--brand)">
+  <button type="button" class="stat-card" style="--c:var(--brand)"
+          hx-get="{% url 'webportal:dashboard_active_employees' %}" hx-target="#modalContent"
+          title="View active employees">
     <span class="stat-bar"></span>
     <span class="stat-ico"><i class="bi bi-people"></i></span>
     <div class="stat-body">
       <div class="stat-label">Active Employees</div>
       <div class="stat-value">{{ total_employees }}</div>
     </div>
-  </div>
-  <div class="stat-card" style="--c:var(--ok)">
+  </button>
+  <a class="stat-card" style="--c:var(--ok)"
+     href="{% url 'webportal:attendance' %}?date_start={{ today|date:'Y-m-d' }}&date_end={{ today|date:'Y-m-d' }}"
+     title="View today's attendance">
     <span class="stat-bar"></span>
     <span class="stat-ico"><i class="bi bi-check2-circle"></i></span>
     <div class="stat-body">
       <div class="stat-label">Present Today</div>
       <div class="stat-value">{{ present }}</div>
     </div>
-  </div>
-  <div class="stat-card" style="--c:var(--late)">
+  </a>
+  <a class="stat-card" style="--c:var(--late)"
+     href="{% url 'webportal:lates' %}?start={{ today|date:'Y-m-d' }}&end={{ today|date:'Y-m-d' }}"
+     title="View today's late sessions">
     <span class="stat-bar"></span>
     <span class="stat-ico"><i class="bi bi-clock-history"></i></span>
     <div class="stat-body">
       <div class="stat-label">Late (sessions)</div>
       <div class="stat-value">{{ late }}</div>
     </div>
-  </div>
-  <div class="stat-card" style="--c:var(--absent)">
+  </a>
+  <a class="stat-card" style="--c:var(--absent)"
+     href="{% url 'webportal:absences' %}?start={{ today|date:'Y-m-d' }}&end={{ today|date:'Y-m-d' }}"
+     title="View today's absences">
     <span class="stat-bar"></span>
     <span class="stat-ico"><i class="bi bi-person-x"></i></span>
     <div class="stat-body">
       <div class="stat-label">Absent (sessions)</div>
       <div class="stat-value">{{ absent }}</div>
     </div>
-  </div>
+  </a>
 </div>
 
 <div class="dash-grid">
@@ -108,14 +116,15 @@
         {% if top_lost %}
         <div class="top-grid">
           {% for t in top_lost %}
-          <div class="top-card" style="--tc:{{ t.employee.avatar_color }}">
+          <a class="top-card" style="--tc:{{ t.employee.avatar_color }}"
+             href="{% url 'webportal:employee_detail' t.employee.id %}">
             <div class="top-rank">{{ forloop.counter }}</div>
             <div class="top-avatar">{% include 'webportal/partials/avatar.html' with emp=t.employee size='md' %}</div>
             <div class="top-name">{{ t.employee.full_name }}</div>
             <div class="top-sub">{{ t.employee.department.name }}</div>
             <div class="top-val">{{ t.total }}<span> min</span></div>
             <div class="top-break">{{ t.late }} late · {{ t.under }} under</div>
-          </div>
+          </a>
           {% endfor %}
         </div>
         {% else %}

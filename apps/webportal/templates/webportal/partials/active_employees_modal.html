@@ -1,0 +1,26 @@
+<div class="modal-header">
+  <h5 class="modal-title"><i class="bi bi-people me-1"></i> Active Employees
+    <span class="text-muted fw-normal small">· {{ employees|length }}</span></h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<div class="modal-body" style="max-height:60vh; overflow-y:auto">
+  {% regroup employees by department as dept_list %}
+  {% for dept in dept_list %}
+    <div class="text-muted small fw-semibold mb-1{% if not forloop.first %} mt-3{% endif %}">
+      {{ dept.grouper.name }}</div>
+    {% for e in dept.list %}
+      <a class="d-flex align-items-center gap-2 py-2 text-body text-decoration-none active-emp-row"
+         href="{% url 'webportal:employee_detail' e.id %}">
+        {% include 'webportal/partials/avatar.html' with emp=e size='sm' %}
+        <span class="flex-grow-1" style="min-width:0">
+          <span class="d-block fw-semibold small">{{ e.full_name }}</span>
+          <span class="d-block text-muted" style="font-size:11px">{{ e.employee_no }}
+            · {% if e.is_fulltime %}Full-time{% else %}Part-time{% endif %}</span>
+        </span>
+        <i class="bi bi-chevron-right text-muted small"></i>
+      </a>
+    {% endfor %}
+  {% empty %}
+    <div class="text-center text-muted py-4">No active employees.</div>
+  {% endfor %}
+</div>

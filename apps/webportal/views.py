@@ -155,6 +155,14 @@ def dashboard(request):
 
 
 @admin_required
+def dashboard_active_employees(request):
+    employees = Employee.objects.filter(is_active=True).select_related(
+        'department').order_by('department__name', 'employee_no')
+    return render(request, 'webportal/partials/active_employees_modal.html',
+                  {'employees': employees})
+
+
+@admin_required
 def dashboard_recent(request):
     logs = (
         AttendanceLog.objects.select_related('employee', 'device')

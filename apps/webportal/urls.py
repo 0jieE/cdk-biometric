@@ -12,6 +12,7 @@ urlpatterns = [
     # Dashboard
     path('dashboard/', views.dashboard, name='dashboard'),
     path('dashboard/recent/', views.dashboard_recent, name='dashboard_recent'),
+    path('dashboard/active-employees/', views.dashboard_active_employees, name='dashboard_active_employees'),
     path('sync-now/', views.sync_now, name='sync_now'),
 
     # Attendance / tardiness / absences

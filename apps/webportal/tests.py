@@ -1,6 +1,6 @@
 """Web portal RBAC + Phase 8 page tests."""
 
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 from unittest.mock import patch
 
@@ -9,7 +9,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.attendance.models import AttendanceLog, OTAuthorization
+from apps.attendance.models import AttendanceLog, Lates, OTAuthorization, Undertime
 from apps.devices.models import BiometricDevice
 from apps.organization.models import Department, Employee, GlobalSchedule
 from apps.reports.models import ReportJob
@@ -349,6 +349,67 @@ class DeviceTestConnectionTests(TestCase):
         self.client.get(reverse('webportal:device_test', args=[other.pk]))
 
         get_client.assert_called_once_with(ip='192.168.1.9', port=4370)
+
+
+class DashboardLinksTests(TestCase):
+    """The dashboard's stat cards and Top 5 Lost Time cards are clickable."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.emp = Employee.objects.create(
+            employee_no='DL-1', first_name='Lost', last_name='Time',
+            department=dept, biometric_id='9601', is_fulltime=True)
+        cls.inactive_emp = Employee.objects.create(
+            employee_no='DL-2', first_name='Not', last_name='Here',
+            department=dept, biometric_id='9602', is_fulltime=True, is_active=False)
+        cls.admin = User.objects.create(username='admin7', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+        today = timezone.localdate()
+        log = AttendanceLog.objects.create(
+            employee=cls.emp, log_type='AM_IN',
+            log_datetime=timezone.make_aware(datetime.combine(today, time(8, 20))))
+        Lates.objects.create(employee=cls.emp, date=today, session='AM',
+                             attendance_log=log, minutes_late=15)
+        Undertime.objects.create(employee=cls.emp, date=today, session='PM',
+                                 attendance_log=log, minutes_undertime=10)
+
+    def setUp(self):
+        self.client.login(username='admin7', password=PASSWORD)
+
+    def test_stat_cards_link_to_the_right_pages_for_today(self):
+        resp = self.client.get(reverse('webportal:dashboard'))
+        today = timezone.localdate().isoformat()
+        content = resp.content.decode()
+        self.assertIn(reverse('webportal:dashboard_active_employees'), content)
+        self.assertIn(f"{reverse('webportal:attendance')}?date_start={today}&date_end={today}", content)
+        self.assertIn(f"{reverse('webportal:lates')}?start={today}&end={today}", content)
+        self.assertIn(f"{reverse('webportal:absences')}?start={today}&end={today}", content)
+
+    def test_active_employees_card_opens_via_htmx_modal(self):
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertContains(resp, 'hx-get="%s"' % reverse('webportal:dashboard_active_employees'))
+        self.assertContains(resp, 'hx-target="#modalContent"')
+
+    def test_active_employees_modal_lists_only_active_employees(self):
+        resp = self.client.get(reverse('webportal:dashboard_active_employees'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'DL-1')
+        self.assertNotContains(resp, 'DL-2')
+        self.assertContains(resp, reverse('webportal:employee_detail', args=[self.emp.id]))
+
+    def test_active_employees_modal_is_admin_only(self):
+        self.client.logout()
+        resp = self.client.get(reverse('webportal:dashboard_active_employees'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_top_lost_time_card_links_to_the_employee_profile(self):
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertContains(resp, reverse('webportal:employee_detail', args=[self.emp.id]))
 
 
 class EmployeeDeactivationTests(TestCase):
