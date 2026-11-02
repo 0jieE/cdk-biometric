@@ -18,7 +18,6 @@
 
       <div class="profile-facts text-start">
         <div><span>Department</span><b>{{ employee.department.name }}</b></div>
-        <div><span>Position</span><b>{{ employee.position|default:"—" }}</b></div>
         <div><span>Date hired</span><b>{{ employee.date_hired|date:"M d, Y"|default:"—" }}</b></div>
         <div><span>Biometric ID</span><b>{{ employee.biometric_id }}</b></div>
         <div><span>Login</span>

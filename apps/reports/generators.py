@@ -240,7 +240,6 @@ def _attendance(params) -> dict:
             ('Employee', emp.full_name),
             ('Employee No.', emp.employee_no),
             ('Department', emp.department.name),
-            ('Position', emp.position or '—'),
             ('Employment type', 'Full-time' if fulltime else 'Part-time'),
             ('Schedule', _schedule_label(sched, fulltime)),
             ('Period covered', f'{start:%B %d, %Y} – {end:%B %d, %Y} '

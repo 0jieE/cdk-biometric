@@ -38,7 +38,7 @@ class EmployeeForm(BootstrapMixin, forms.ModelForm):
     class Meta:
         model = Employee
         fields = ('employee_no', 'first_name', 'last_name', 'department',
-                  'position', 'is_fulltime', 'biometric_id', 'date_hired',
+                  'is_fulltime', 'biometric_id', 'date_hired',
                   'photo', 'is_active')
         widgets = {
             'date_hired': forms.DateInput(attrs={'type': 'date'}),

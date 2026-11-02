@@ -706,11 +706,16 @@ class AddEmployeeOnboardingTests(TestCase):
 
     def _add(self, no, bio, fulltime):
         data = {'employee_no': no, 'first_name': 'New', 'last_name': 'Hire',
-                'department': self.dept.pk, 'position': 'Staff', 'biometric_id': bio,
+                'department': self.dept.pk, 'biometric_id': bio,
                 'is_active': 'on'}
         if fulltime:
             data['is_fulltime'] = 'on'
         return self.client.post(reverse('webportal:employee_create'), data)
+
+    def test_form_has_no_position_field(self):
+        resp = self.client.get(reverse('webportal:employee_create'))
+        self.assertContains(resp, 'name="employee_no"')
+        self.assertNotContains(resp, 'name="position"')
 
     def test_new_fulltimer_goes_to_the_schedule_step(self):
         resp = self._add('OB-1', '9601', fulltime=True)
@@ -756,7 +761,7 @@ class AddEmployeeOnboardingTests(TestCase):
         emp = Employee.objects.get(employee_no='OB-6')
         resp = self.client.post(reverse('webportal:employee_edit', args=[emp.pk]), {
             'employee_no': 'OB-6', 'first_name': 'Renamed', 'last_name': 'Hire',
-            'department': self.dept.pk, 'position': 'Staff', 'biometric_id': '9606',
+            'department': self.dept.pk, 'biometric_id': '9606',
             'is_fulltime': 'on', 'is_active': 'on'})
         self.assertEqual(resp.status_code, 204)
         self.assertIn('closeModal', resp['HX-Trigger'])
