@@ -10,6 +10,9 @@ secrets/
 *.serviceaccount.json
 firebase-service-account.json
 
+# Database dumps from scripts/regenerate-data.*
+backups/
+
 # Python
 __pycache__/
 *.py[cod]

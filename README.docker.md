@@ -142,6 +142,22 @@ To wipe everything **including the database** (destructive):
 docker compose down -v       # also removes named volumes
 ```
 
+### Regenerating data after a rules / schema change
+
+When the attendance rules or the schema change, run this to bring the
+existing data up to date. It backs up the database to `backups/`, migrates,
+shows a dry run, asks before applying, then restarts the app containers:
+
+```powershell
+.\scripts\regenerate-data.ps1        # Windows (add -Yes to skip the question)
+./scripts/regenerate-data.sh         # macOS / Linux / Git Bash (add -y)
+```
+
+It re-classifies stored device punches by the current rules, drops punches
+that are now duplicates, and re-derives absences / lates / undertime /
+overtime. Manual entries are never changed. Safe to re-run. Restore commands
+for the backup are at the top of `scripts/regenerate-data.ps1`.
+
 ---
 
 ## Common commands
