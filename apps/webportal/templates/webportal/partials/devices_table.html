@@ -12,8 +12,8 @@
       <td>{% if d.is_active %}<span class="badge-status s-present">Active</span>{% else %}<span class="badge-status s-neutral">Inactive</span>{% endif %}</td>
       <td class="text-end text-nowrap">
         <button class="btn btn-outline-brand btn-sm" hx-get="{% url 'webportal:device_edit' d.id %}" hx-target="#modalContent"><i class="bi bi-pencil"></i></button>
-        <button class="btn btn-outline-success btn-sm" hx-post="{% url 'webportal:device_sync' d.id %}" hx-target="#deviceActionResult"><i class="bi bi-arrow-repeat"></i></button>
-        <button class="btn btn-outline-info btn-sm" hx-post="{% url 'webportal:device_test' d.id %}" hx-target="#deviceActionResult"><i class="bi bi-plug"></i></button>
+        <button class="btn btn-outline-success btn-sm" hx-post="{% url 'webportal:device_sync' d.id %}" hx-target="#toasts" hx-swap="beforeend"><i class="bi bi-arrow-repeat"></i></button>
+        <button class="btn btn-outline-info btn-sm" hx-post="{% url 'webportal:device_test' d.id %}" hx-target="#toasts" hx-swap="beforeend"><i class="bi bi-plug"></i></button>
       </td>
     </tr>
   {% endfor %}

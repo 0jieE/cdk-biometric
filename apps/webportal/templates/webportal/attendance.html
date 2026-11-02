@@ -39,7 +39,7 @@
                data-dt-order='[[0,"desc"]]' style="width:100%">
           <thead><tr>
             <th>Date</th><th>Employee</th><th>AM In</th><th>AM Out</th><th>PM In</th><th>PM Out</th>
-            <th>Day Status</th><th>Late (min)</th><th>Undertime (min)</th><th>Lost (min)</th>
+            <th>Day Status</th><th>Late (min)</th><th>Undertime (min)</th><th>Absent (min)</th><th>Lost (min)</th>
             <th>OT (min)</th></tr></thead>
           <tbody></tbody>
         </table>
@@ -47,12 +47,22 @@
     </div>
 
     <div class="tab-pane fade" id="tab-pt" role="tabpanel">
+      <!-- Weekly hours vs. requirement; follows the same filters as the table. -->
+      <h6 class="mb-2"><i class="bi bi-hourglass-split me-1"></i> Weekly hours
+        <span class="text-muted fw-normal small">· Mon–Sun, against each part-timer's requirement</span></h6>
+      <div id="pt-weekly" class="mb-4"
+           hx-get="{% url 'webportal:attendance_weekly' %}" hx-include="#dt-filters"
+           hx-trigger="load, change from:#dt-filters">
+        <div class="text-muted small">Loading…</div>
+      </div>
+
+      <h6 class="mb-2"><i class="bi bi-calendar3 me-1"></i> Daily log</h6>
       <div class="table-responsive">
         <table id="dt-att-pt" class="table js-dt-server"
                data-dt-url="{% url 'webportal:attendance_data' %}?emp_type=PART_TIME"
                data-dt-order='[[0,"desc"]]' style="width:100%">
           <thead><tr>
-            <th>Date</th><th>Employee</th><th>In</th><th>Out</th>
+            <th>Date</th><th>Employee</th><th>In</th><th>Out</th><th>Hours</th>
             <th>Day Status</th><th>Incomplete</th></tr></thead>
           <tbody></tbody>
         </table>

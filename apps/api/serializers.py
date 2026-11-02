@@ -44,10 +44,13 @@ class AttendanceSummarySerializer(serializers.Serializer):
     late = serializers.IntegerField()
     half_day = serializers.IntegerField()
     absent = serializers.IntegerField()
+    incomplete = serializers.IntegerField()        # part-time days with one punch
+    worked_minutes = serializers.IntegerField()    # part-time hours rendered
     overtime_minutes = serializers.IntegerField()
     # Computed by monthly_summary all along, but never exposed until now.
     late_minutes = serializers.IntegerField()
     undertime_minutes = serializers.IntegerField()
+    absent_minutes = serializers.IntegerField()
     lost_minutes = serializers.IntegerField()
 
 

@@ -169,14 +169,14 @@ class SweeperTests(_Base):
 @override_settings(CELERY_TASK_ALWAYS_EAGER=True, FIREBASE_CREDENTIALS='')
 class DailyTaskNoDoubleNotifyTests(_Base):
     def test_daily_task_notifies_absence_not_late(self):
-        # Late full-time employee (AM 20 min late) with all four punches.
-        for lt, t in [('AM_IN', time(8, 25)), ('AM_OUT', time(12, 0)),
-                      ('PM_IN', time(13, 0)), ('PM_OUT', time(17, 0))]:
+        # Full-time employee 20 min late in the AM, and missed the whole PM.
+        for lt, t in [('AM_IN', time(8, 25)), ('AM_OUT', time(12, 0))]:
             AttendanceLog.objects.create(employee=self.ft, log_type=lt,
                                          log_datetime=aware(WORKDAY, t))
-        # Part-time employee absent (no punches).
+        # Part-timer with no punches: a day off, not an absence.
         process_daily_attendance_task(WORKDAY.isoformat())
 
-        self.assertTrue(Notification.objects.filter(type='ABSENCE').exists())
+        self.assertTrue(Notification.objects.filter(type='ABSENCE', employee=self.ft).exists())
+        self.assertFalse(Notification.objects.filter(type='ABSENCE', employee=self.pt).exists())
         # Lateness is delivered on the immediate per-punch push, never here.
         self.assertFalse(Notification.objects.filter(type='LATE').exists())

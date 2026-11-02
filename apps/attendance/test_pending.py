@@ -109,8 +109,8 @@ class ProcessDayPendingTests(_Base):
         self.assertEqual(result['status'], 'PENDING')
         self.assertFalse(Absence.objects.exists())
         result = process_day(self.part, TODAY, now=at(time(17, 30)))
-        self.assertEqual(result['status'], 'ABSENT')
-        self.assertTrue(Absence.objects.get().incomplete)
+        self.assertEqual(result['status'], 'INCOMPLETE')
+        self.assertFalse(Absence.objects.exists())     # judged weekly, never absent
 
     def test_parttime_complete_is_present_at_any_time(self):
         self._log(self.part, 'IN', time(8, 0))
@@ -160,7 +160,7 @@ class ApiPendingTests(_Base):
         self.assertFalse(rec['incomplete'])
         with self.clock(time(17, 30)):
             rec = self._today(self.part)
-        self.assertEqual(rec['day_status'], 'ABSENT')
+        self.assertEqual(rec['day_status'], 'INCOMPLETE')
         self.assertEqual(rec['missing'], 'OUT')
 
     def test_monthly_summary_does_not_count_an_open_day(self):

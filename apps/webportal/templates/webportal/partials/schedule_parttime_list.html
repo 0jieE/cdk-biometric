@@ -1,0 +1,38 @@
+<div class="sched-grid">
+  {% for e in employees %}
+  <div class="sched-card" data-search="{{ e.full_name|lower }} {{ e.employee_no|lower }}">
+    <div class="sched-card-top">
+      {% include 'webportal/partials/avatar.html' with emp=e size='sm' %}
+      <div class="sched-who">
+        <div class="sched-name">{{ e.full_name }}</div>
+        <div class="sched-no">{{ e.employee_no }}</div>
+      </div>
+      <span class="badge-status s-half ms-auto">Part-time</span>
+    </div>
+
+    <div class="sched-status">
+      <span class="fw-semibold">{{ e.weekly_hours|floatformat:"-1" }} h / week</span>
+      {% if e.has_own_hours %}
+        <span class="badge-status s-in ms-1"><i class="bi bi-sliders"></i> Own hours</span>
+      {% else %}
+        <span class="text-muted small ms-1"><i class="bi bi-arrow-down-left"></i> Default</span>
+      {% endif %}
+    </div>
+
+    <div class="sched-actions">
+      <button type="button" class="btn btn-outline-brand btn-sm"
+              hx-get="{% url 'webportal:employee_weekly_hours' e.id %}" hx-target="#modalContent" hx-swap="innerHTML">
+        <i class="bi bi-pencil-square"></i> Set hours</button>
+      {% if e.has_own_hours %}
+      <button type="button" class="btn btn-outline-danger btn-sm"
+              hx-post="{% url 'webportal:employee_weekly_hours_clear' e.id %}"
+              hx-confirm="Put {{ e.full_name }} back on the default weekly hours?">
+        <i class="bi bi-x-lg"></i> Use default</button>
+      {% endif %}
+    </div>
+  </div>
+  {% empty %}
+  <div class="text-muted">No active part-time employees.</div>
+  {% endfor %}
+</div>
+<div class="sched-empty text-center text-muted py-4" style="display:none">No employees match your search.</div>

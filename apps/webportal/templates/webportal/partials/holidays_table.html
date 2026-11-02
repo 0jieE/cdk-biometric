@@ -6,7 +6,8 @@
     <tr>
       <td data-order="{{ h.date|date:'Y-m-d' }}">{{ h.date|date:"M d, Y" }}</td>
       <td>{{ h.name }}</td>
-      <td><span class="badge-status s-neutral">{{ h.get_type_display }}</span></td>
+      <td><span class="badge-status s-neutral">{{ h.get_type_display }}</span>
+        {% if h.required_label %}<span class="badge-status s-late ms-1" title="Completing these punches counts as present for the whole day">{{ h.required_label }} required</span>{% endif %}</td>
       <td><span class="d-inline-block" style="width:16px;height:16px;border-radius:5px;background:{{ h.color }};vertical-align:middle;box-shadow:0 0 0 1px var(--line)"></span></td>
       <td>{% if h.is_recurring %}<i class="bi bi-check-circle" style="color:var(--ok)"></i>{% else %}—{% endif %}</td>
       <td class="text-end text-nowrap">

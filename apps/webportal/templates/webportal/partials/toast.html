@@ -1,0 +1,9 @@
+{# One pop-up. level: success | error | warning | info; title is optional. #}
+<div class="app-toast toast-{{ level|default:'info' }}" role="status">
+  <i class="bi {% if level == 'success' %}bi-check-circle-fill{% elif level == 'error' %}bi-x-circle-fill{% elif level == 'warning' %}bi-exclamation-triangle-fill{% else %}bi-info-circle-fill{% endif %} toast-icon"></i>
+  <div class="toast-body-text">
+    {% if title %}<div class="toast-title">{{ title }}</div>{% endif %}
+    <div>{{ text }}</div>
+  </div>
+  <button type="button" class="btn-close btn-close-sm" data-toast-close aria-label="Close"></button>
+</div>

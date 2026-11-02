@@ -5,13 +5,14 @@ from datetime import date, datetime, time, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import models
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from apps.attendance.models import AttendanceLog, Lates, OTAuthorization, Undertime
 from apps.devices.models import BiometricDevice
-from apps.organization.models import Department, Employee, GlobalSchedule
+from apps.organization.models import Department, Employee, EmployeeSchedule, GlobalSchedule
 from apps.reports.models import ReportJob
 from apps.webportal.views import _provision_employee_account
 
@@ -101,6 +102,42 @@ class PortalAccessTests(TestCase):
         self.assertContains(resp, 'require an OT authorization')
         self.assertFalse(AttendanceLog.objects.filter(log_type='OT_IN').exists())
 
+    def _manual(self, log_type):
+        return self.client.post(reverse('webportal:manual_attendance'), {
+            'employee': self.emp.id, 'log_type': log_type})
+
+    def _backdate_logs(self, minutes):
+        AttendanceLog.objects.filter(employee=self.emp).update(
+            log_datetime=models.F('log_datetime') - timedelta(minutes=minutes))
+
+    def test_manual_double_click_is_rejected(self):
+        self.client.login(username='admin1', password=PASSWORD)
+        self._manual('AM_IN')
+        resp = self._manual('AM_IN')
+        self.assertContains(resp, 'Duplicate: Web Emp already has AM_IN')
+        self.assertEqual(AttendanceLog.objects.filter(employee=self.emp).count(), 1)
+
+    def test_manual_out_right_after_its_in_is_rejected(self):
+        self.client.login(username='admin1', password=PASSWORD)
+        self._manual('AM_IN')
+        resp = self._manual('AM_OUT')
+        self.assertContains(resp, 'Too soon')
+        self.assertFalse(AttendanceLog.objects.filter(log_type='AM_OUT').exists())
+
+    def test_manual_punch_after_five_minutes_is_fine(self):
+        self.client.login(username='admin1', password=PASSWORD)
+        self._manual('AM_IN')
+        self._backdate_logs(5)
+        self._manual('AM_OUT')
+        self.assertTrue(AttendanceLog.objects.filter(log_type='AM_OUT').exists())
+
+    def test_unrelated_punch_types_are_not_blocked(self):
+        # e.g. PM_OUT then OT_IN a minute later is a real sequence.
+        self.client.login(username='admin1', password=PASSWORD)
+        self._manual('AM_OUT')
+        self._manual('PM_IN')
+        self.assertEqual(AttendanceLog.objects.filter(employee=self.emp).count(), 2)
+
     def test_live_logs_public_no_login(self):
         self.assertEqual(self.client.get(reverse('webportal:live')).status_code, 200)
         self.assertEqual(self.client.get(reverse('webportal:live_feed')).status_code, 200)
@@ -171,7 +208,8 @@ class ReportsPageTests(TestCase):
             'report_type': 'ATTENDANCE', 'fmt': 'PDF', 'employee': self.emp.id,
             'start': '2026-07-06', 'end': '2026-07-08'})
         self.assertEqual(resp.status_code, 200)
-        self.assertIn('attendance_RP-1_', resp['Content-Disposition'])
+        # Named after the employee and the date range.
+        self.assertIn('Rep_Orted_2026-07-06_to_2026-07-08.pdf', resp['Content-Disposition'])
         self.assertTrue(resp.content.startswith(b'%PDF'))
 
     def test_reports_page_is_admin_only(self):
@@ -351,6 +389,170 @@ class DeviceTestConnectionTests(TestCase):
         get_client.assert_called_once_with(ip='192.168.1.9', port=4370)
 
 
+class DashboardDeviceStatusTests(TestCase):
+    """The dashboard shows whether the biometric device is reachable."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create(username='admin8', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+    def setUp(self):
+        self.client.login(username='admin8', password=PASSWORD)
+
+    def test_no_active_device_shows_no_device(self):
+        resp = self.client.get(reverse('webportal:dashboard_device_status'))
+        self.assertContains(resp, 'No Device')
+
+    @patch('apps.webportal.views.get_device_client')
+    def test_reachable_device_shows_connected(self, get_client):
+        BiometricDevice.objects.create(
+            name='Main Entrance', ip_address='192.168.1.3', port=4370, is_active=True)
+        get_client.return_value.quick_check.return_value = True
+        resp = self.client.get(reverse('webportal:dashboard_device_status'))
+        self.assertContains(resp, 'Device Connected')
+        self.assertNotContains(resp, 'Device Offline')
+        get_client.assert_called_once_with(ip='192.168.1.3', port=4370)
+        get_client.return_value.quick_check.assert_called_once_with(timeout=2)
+
+    @patch('apps.webportal.views.get_device_client')
+    def test_unreachable_device_shows_offline(self, get_client):
+        BiometricDevice.objects.create(
+            name='Main Entrance', ip_address='192.168.1.9', port=4370, is_active=True)
+        get_client.return_value.quick_check.return_value = False
+        resp = self.client.get(reverse('webportal:dashboard_device_status'))
+        self.assertContains(resp, 'Device Offline')
+        self.assertNotContains(resp, 'Device Connected')
+
+    @patch('apps.webportal.views.get_device_client')
+    def test_a_connection_error_shows_offline_not_a_crash(self, get_client):
+        BiometricDevice.objects.create(
+            name='Main Entrance', ip_address='192.168.1.9', port=4370, is_active=True)
+        get_client.side_effect = ConnectionError('offline')
+        resp = self.client.get(reverse('webportal:dashboard_device_status'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Device Offline')
+
+    def test_device_status_endpoint_is_admin_only(self):
+        self.client.logout()
+        resp = self.client.get(reverse('webportal:dashboard_device_status'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_dashboard_polls_the_device_status_endpoint(self):
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertContains(resp, reverse('webportal:dashboard_device_status'))
+
+
+class DeviceCardStatusTests(TestCase):
+    """Each card on the Devices page shows whether THAT device is reachable,
+    active or not."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create(username='admin9', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+        cls.main = BiometricDevice.objects.create(
+            name='Main Entrance', ip_address='192.168.1.3', port=4370, is_active=True)
+        cls.hs = BiometricDevice.objects.create(
+            name='High School', ip_address='192.168.1.202', port=4370, is_active=False)
+
+    def setUp(self):
+        self.client.login(username='admin9', password=PASSWORD)
+
+    def test_every_card_polls_its_own_status(self):
+        resp = self.client.get(reverse('webportal:devices'), headers={'HX-Request': 'true'})
+        for d in (self.main, self.hs):
+            self.assertContains(resp, reverse('webportal:device_status', args=[d.pk]))
+        # Must swap into its own cell: inheriting the list's hx-target="#list"
+        # replaced every card with the bare badge.
+        self.assertContains(resp, 'hx-target="this"', count=2)
+
+    @patch('apps.webportal.views.get_device_client')
+    def test_reachable_device_shows_connected(self, get_client):
+        get_client.return_value.quick_check.return_value = True
+        resp = self.client.get(reverse('webportal:device_status', args=[self.main.pk]))
+        self.assertContains(resp, 'Connected')
+        get_client.assert_called_once_with(ip='192.168.1.3', port=4370)
+
+    @patch('apps.webportal.views.get_device_client')
+    def test_an_inactive_device_is_still_checked_at_its_own_address(self, get_client):
+        get_client.return_value.quick_check.return_value = False
+        resp = self.client.get(reverse('webportal:device_status', args=[self.hs.pk]))
+        self.assertContains(resp, 'Offline')
+        get_client.assert_called_once_with(ip='192.168.1.202', port=4370)
+
+    @patch('apps.webportal.views.get_device_client')
+    def test_a_connection_error_shows_offline_not_a_crash(self, get_client):
+        get_client.side_effect = ConnectionError('offline')
+        resp = self.client.get(reverse('webportal:device_status', args=[self.main.pk]))
+        self.assertContains(resp, 'Offline')
+
+    def test_status_endpoint_is_admin_only(self):
+        self.client.logout()
+        resp = self.client.get(reverse('webportal:device_status', args=[self.main.pk]))
+        self.assertEqual(resp.status_code, 302)
+
+
+class ToastTests(TestCase):
+    """Notifications pop up (#toasts) instead of sitting in the page content."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        cls.dept = Department.objects.create(name='IT', code='IT')
+        cls.admin = User.objects.create(username='admin10', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+        cls.device = BiometricDevice.objects.create(
+            name='Main Entrance', ip_address='192.168.1.3', port=4370, is_active=True)
+
+    def setUp(self):
+        self.client.login(username='admin10', password=PASSWORD)
+
+    @patch('apps.webportal.views.get_device_client')
+    def test_device_test_result_is_a_toast(self, get_client):
+        get_client.return_value.test_connection.return_value = False
+        resp = self.client.post(reverse('webportal:device_test', args=[self.device.pk]))
+        self.assertContains(resp, 'app-toast toast-error')
+        self.assertContains(resp, 'Unreachable')
+
+    def test_device_buttons_target_the_toast_stack(self):
+        resp = self.client.get(reverse('webportal:devices'), headers={'HX-Request': 'true'})
+        self.assertContains(resp, 'hx-target="#toasts" hx-swap="beforeend"', count=2)
+        # htmx 1.9: hx-disabled-elt="this" shares the busy indicator's request
+        # counter, so the button's spinner would never stop.
+        self.assertNotContains(resp, 'hx-disabled-elt="this"')
+
+    def test_htmx_action_messages_arrive_as_a_toast_event(self):
+        import json
+        resp = self.client.post(reverse('webportal:employee_weekly_hours_clear', args=[
+            Employee.objects.create(employee_no='T-1', first_name='Toast', last_name='Test',
+                                    department=self.dept, biometric_id='9701',
+                                    is_fulltime=False).pk]),
+            headers={'HX-Request': 'true'})
+        payload = json.loads(resp['HX-Trigger-After-Settle'])
+        self.assertEqual(payload['toast']['items'][0]['level'], 'success')
+        self.assertIn('default weekly hours', payload['toast']['items'][0]['text'])
+        # ...and they're consumed, so they don't pop up a second time on the next page.
+        page = self.client.get(reverse('webportal:dashboard'))
+        self.assertNotContains(page, 'default weekly hours')
+
+    def test_page_load_messages_render_in_the_toast_stack_not_the_content(self):
+        self.client.post(reverse('webportal:schedule_parttime_default'),
+                         {'parttime_weekly_hours': '18',
+                          'parttime_min_days': '2'})               # a plain POST + redirect
+        page = self.client.get(reverse('webportal:schedule'))
+        html = page.content.decode()
+        stack = html.index('id="toasts"')
+        self.assertIn('app-toast toast-success', html[stack:])
+        self.assertNotIn('alert-dismissible', html)
+
+
 class DashboardLinksTests(TestCase):
     """The dashboard's stat cards and Top 5 Lost Time cards are clickable."""
 
@@ -484,3 +686,166 @@ class EmployeeDeactivationTests(TestCase):
         body = resp.content.decode()
         self.assertIn(self.emp.employee_no, body)
         self.assertIn(other.employee_no, body)
+
+
+class AddEmployeeOnboardingTests(TestCase):
+    """Saving a NEW employee moves the modal on to step 2: the schedule override
+    for a full-timer, the weekly hours for a part-timer. Edits just close."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        cls.dept = Department.objects.create(name='IT', code='IT')
+        cls.admin = User.objects.create(username='admin6', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+    def setUp(self):
+        self.client.login(username='admin6', password=PASSWORD)
+
+    def _add(self, no, bio, fulltime):
+        data = {'employee_no': no, 'first_name': 'New', 'last_name': 'Hire',
+                'department': self.dept.pk, 'position': 'Staff', 'biometric_id': bio,
+                'is_active': 'on'}
+        if fulltime:
+            data['is_fulltime'] = 'on'
+        return self.client.post(reverse('webportal:employee_create'), data)
+
+    def test_new_fulltimer_goes_to_the_schedule_step(self):
+        resp = self._add('OB-1', '9601', fulltime=True)
+        emp = Employee.objects.get(employee_no='OB-1')
+        self.assertTemplateUsed(resp, 'webportal/partials/employee_schedule_form.html')
+        self.assertContains(resp, 'Step 2 of 2')
+        self.assertContains(resp, reverse('webportal:employee_schedule', args=[emp.pk]))
+        self.assertEqual(resp['HX-Trigger'], 'refreshList')
+        self.assertTrue(User.objects.filter(employee=emp).exists())   # login still made
+
+    def test_new_parttimer_goes_to_the_weekly_hours_step(self):
+        resp = self._add('OB-2', '9602', fulltime=False)
+        emp = Employee.objects.get(employee_no='OB-2')
+        self.assertTemplateUsed(resp, 'webportal/partials/employee_weekly_hours_form.html')
+        self.assertContains(resp, 'Step 2 of 2')
+        self.assertContains(resp, reverse('webportal:employee_weekly_hours', args=[emp.pk]))
+
+    def test_step_two_does_not_create_an_override_until_saved(self):
+        self._add('OB-3', '9603', fulltime=False)
+        emp = Employee.objects.get(employee_no='OB-3')
+        self.assertFalse(EmployeeSchedule.objects.filter(employee=emp).exists())
+        resp = self.client.post(reverse('webportal:employee_weekly_hours', args=[emp.pk]),
+                                {'weekly_hours': '12', 'onboarding': '1'})
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(EmployeeSchedule.objects.get(employee=emp).weekly_hours, 12)
+
+    def test_saving_all_blank_keeps_no_override_row(self):
+        self._add('OB-4', '9604', fulltime=False)
+        emp = Employee.objects.get(employee_no='OB-4')
+        self.client.post(reverse('webportal:employee_weekly_hours', args=[emp.pk]),
+                         {'weekly_hours': '', 'onboarding': '1'})
+        self.assertFalse(EmployeeSchedule.objects.filter(employee=emp).exists())
+
+    def test_invalid_step_two_stays_on_step_two(self):
+        self._add('OB-5', '9605', fulltime=False)
+        emp = Employee.objects.get(employee_no='OB-5')
+        resp = self.client.post(reverse('webportal:employee_weekly_hours', args=[emp.pk]),
+                                {'weekly_hours': '500', 'onboarding': '1'})
+        self.assertContains(resp, 'Step 2 of 2')
+
+    def test_editing_an_employee_just_closes_the_modal(self):
+        self._add('OB-6', '9606', fulltime=True)
+        emp = Employee.objects.get(employee_no='OB-6')
+        resp = self.client.post(reverse('webportal:employee_edit', args=[emp.pk]), {
+            'employee_no': 'OB-6', 'first_name': 'Renamed', 'last_name': 'Hire',
+            'department': self.dept.pk, 'position': 'Staff', 'biometric_id': '9606',
+            'is_fulltime': 'on', 'is_active': 'on'})
+        self.assertEqual(resp.status_code, 204)
+        self.assertIn('closeModal', resp['HX-Trigger'])
+
+
+class EmployeeRecordsTests(TestCase):
+    """The profile lists the employee's day-by-day attendance records, not just
+    the analytics."""
+    MON, TUE = date(2026, 7, 6), date(2026, 7, 7)
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()                       # 08:00-12:00, 13:00-17:00, grace 5
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.ft = Employee.objects.create(employee_no='R-1', first_name='Full', last_name='Rec',
+                                         department=dept, biometric_id='9801', is_fulltime=True)
+        cls.pt = Employee.objects.create(employee_no='R-2', first_name='Part', last_name='Rec',
+                                         department=dept, biometric_id='9802', is_fulltime=False)
+        # Tracking starts at max(first punch ever, created_at): anchor both in June.
+        anchor = Employee.objects.create(employee_no='R-X', first_name='An', last_name='Chor',
+                                         department=dept, biometric_id='9899', is_fulltime=True)
+        cls._punch(anchor, date(2026, 6, 1), 'AM_IN', time(8, 0))
+        Employee.objects.filter(pk__in=[cls.ft.pk, cls.pt.pk]).update(
+            created_at=timezone.make_aware(datetime(2026, 6, 1)))
+        # Monday: full-timer 15 min late in the AM, missed the PM -> 15 + 240 lost.
+        cls._punch(cls.ft, cls.MON, 'AM_IN', time(8, 20))
+        cls._punch(cls.ft, cls.MON, 'AM_OUT', time(12, 0))
+        # Part-timer: Monday 08:00-12:30, Tuesday a lone IN.
+        cls._punch(cls.pt, cls.MON, 'IN', time(8, 0))
+        cls._punch(cls.pt, cls.MON, 'OUT', time(12, 30))
+        cls._punch(cls.pt, cls.TUE, 'IN', time(9, 0))
+        # Late minutes come from the processed Lates rows (the daily job).
+        from apps.attendance.services import process_day
+        for d in (cls.MON, cls.TUE):
+            process_day(Employee.objects.get(pk=cls.ft.pk), d)
+        cls.admin = User.objects.create(username='admin11', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+    @staticmethod
+    def _punch(emp, d, log_type, t):
+        AttendanceLog.objects.create(employee=emp, log_type=log_type,
+                                     log_datetime=timezone.make_aware(datetime.combine(d, t)))
+
+    def setUp(self):
+        self.client.login(username='admin11', password=PASSWORD)
+
+    def _records(self, emp, start, end, **extra):
+        return self.client.get(reverse('webportal:employee_records', args=[emp.pk]),
+                               {'start': start.isoformat(), 'end': end.isoformat(), **extra})
+
+    def test_profile_loads_the_records_section(self):
+        resp = self.client.get(reverse('webportal:employee_detail', args=[self.ft.pk]))
+        self.assertContains(resp, reverse('webportal:employee_records', args=[self.ft.pk]))
+
+    def test_fulltime_rows_and_totals(self):
+        resp = self._records(self.ft, self.MON, self.TUE)
+        self.assertEqual([r['day_status'] for r in resp.context['records']],
+                         ['ABSENT', 'HALF_DAY'])                    # newest first
+        t = resp.context['totals']
+        self.assertEqual((t['late_minutes'], t['absent_minutes'], t['lost_minutes']),
+                         (15, 240 + 480, 15 + 240 + 480))
+        self.assertContains(resp, '08:20')
+        self.assertContains(resp, 'Half day')
+
+    def test_status_filter_keeps_the_counts_of_the_whole_range(self):
+        resp = self._records(self.ft, self.MON, self.TUE, status='ABSENT')
+        self.assertEqual([r['date'] for r in resp.context['records']], [self.TUE])
+        self.assertEqual(resp.context['status_counts'],
+                         [('HALF_DAY', 'Half day', 1), ('ABSENT', 'Absent', 1)])
+
+    def test_export_links_cover_the_selected_range(self):
+        resp = self._records(self.ft, self.MON, self.TUE)
+        self.assertContains(resp, f'employee={self.ft.id}&start=2026-07-06&end=2026-07-07')
+
+    def test_reversed_range_is_swapped(self):
+        resp = self._records(self.ft, self.TUE, self.MON)
+        self.assertEqual((resp.context['start'], resp.context['end']), (self.MON, self.TUE))
+
+    def test_parttime_shows_hours_and_its_weeks(self):
+        resp = self._records(self.pt, self.MON, self.TUE)
+        self.assertEqual([r['day_status'] for r in resp.context['records']],
+                         ['INCOMPLETE', 'PRESENT'])
+        self.assertEqual(resp.context['totals']['worked'], '4h 30m')
+        self.assertEqual(len(resp.context['weeks']), 1)
+        self.assertContains(resp, 'OUT missing')
+        self.assertNotContains(resp, '<th>Employee</th>')       # it's their own profile
+
+    def test_records_are_admin_only(self):
+        self.client.logout()
+        self.assertEqual(self._records(self.ft, self.MON, self.MON).status_code, 302)

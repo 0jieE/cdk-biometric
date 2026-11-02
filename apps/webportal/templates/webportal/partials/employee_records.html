@@ -1,0 +1,113 @@
+<div class="card">
+  <div class="card-head flex-wrap gap-2">
+    <span><i class="bi bi-calendar-check me-1"></i> Attendance records
+      <span class="text-muted fw-normal small">· {{ start|date:"M d, Y" }} – {{ end|date:"M d, Y" }}</span></span>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-brand btn-sm" title="Formal report for this range"
+         href="{% url 'webportal:export' %}?report_type=ATTENDANCE&fmt=PDF&employee={{ employee.id }}&start={{ start|date:'Y-m-d' }}&end={{ end|date:'Y-m-d' }}">
+        <i class="bi bi-file-earmark-pdf"></i> PDF</a>
+      <a class="btn btn-outline-success btn-sm"
+         href="{% url 'webportal:export' %}?report_type=ATTENDANCE&fmt=XLSX&employee={{ employee.id }}&start={{ start|date:'Y-m-d' }}&end={{ end|date:'Y-m-d' }}">
+        <i class="bi bi-file-earmark-excel"></i> Excel</a>
+    </div>
+  </div>
+
+  <div class="card-pad pb-2">
+    <form class="row g-2 align-items-end"
+          hx-get="{% url 'webportal:employee_records' employee.id %}" hx-trigger="change"
+          hx-target="#emp-records" hx-swap="innerHTML">
+      <div class="col-6 col-md-3"><label class="form-label small">Start</label>
+        <input type="date" name="start" value="{{ start|date:'Y-m-d' }}" class="form-control form-control-sm"></div>
+      <div class="col-6 col-md-3"><label class="form-label small">End</label>
+        <input type="date" name="end" value="{{ end|date:'Y-m-d' }}" class="form-control form-control-sm"></div>
+      <div class="col-12 col-md-3"><label class="form-label small">Status</label>
+        <select name="status" class="form-select form-select-sm"><option value="">All</option>
+          {% for s, label in statuses %}<option value="{{ s }}" {% if status == s %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select></div>
+    </form>
+    {% if status_counts %}
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      {% for s, label, n in status_counts %}
+        <span class="badge-status {% if s == 'PRESENT' %}s-present{% elif s == 'LATE' %}s-late{% elif s == 'ABSENT' %}s-absent{% elif s == 'PENDING' %}s-neutral{% else %}s-half{% endif %}">{{ label }} · {{ n }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if weeks %}
+  <div class="card-pad pt-2 pb-2">
+    <h6 class="mb-2"><i class="bi bi-hourglass-split me-1"></i> Weekly hours
+      <span class="text-muted fw-normal small">· Mon–Sun</span></h6>
+    {% include 'webportal/partials/attendance_weekly.html' with rows=weeks hide_employee=True %}
+  </div>
+  {% endif %}
+
+  <div class="table-responsive records-scroll">
+    <table class="table mb-0" style="width:100%">
+      <thead><tr>
+        <th>Date</th>
+        {% if employee.is_fulltime %}
+          <th>AM In</th><th>AM Out</th><th>PM In</th><th>PM Out</th><th>Status</th>
+          <th class="text-end">Late</th><th class="text-end">Undertime</th><th class="text-end">Absent</th>
+          <th class="text-end">Lost</th><th class="text-end">OT</th>
+        {% else %}
+          <th>In</th><th>Out</th><th class="text-end">Hours</th><th>Status</th><th>Incomplete</th>
+        {% endif %}
+      </tr></thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td class="text-nowrap">{{ r.date|date:"D, M d, Y" }}</td>
+          {% if employee.is_fulltime %}
+            <td>{{ r.am.in|time:"H:i"|default:"—" }}</td>
+            <td>{{ r.am.out|time:"H:i"|default:"—" }}</td>
+            <td>{{ r.pm.in|time:"H:i"|default:"—" }}</td>
+            <td>{{ r.pm.out|time:"H:i"|default:"—" }}</td>
+          {% else %}
+            <td>{{ r.in|time:"H:i"|default:"—" }}</td>
+            <td>{{ r.out|time:"H:i"|default:"—" }}</td>
+            <td class="text-end">{{ r.worked }}</td>
+          {% endif %}
+          <td>
+            {% if r.day_status == 'PRESENT' %}<span class="badge-status s-present">Present</span>
+            {% elif r.day_status == 'LATE' %}<span class="badge-status s-late">Late</span>
+            {% elif r.day_status == 'HALF_DAY' %}<span class="badge-status s-half">Half day</span>
+            {% elif r.day_status == 'PENDING' %}<span class="badge-status s-neutral">In progress</span>
+            {% elif r.day_status == 'INCOMPLETE' %}<span class="badge-status s-half">Incomplete</span>
+            {% else %}<span class="badge-status s-absent">Absent</span>{% endif %}
+            {% if r.event %}<div class="text-muted small mt-1"><i class="bi bi-calendar-event"></i> {{ r.event }}</div>{% endif %}
+          </td>
+          {% if employee.is_fulltime %}
+            {# minutes; a dash instead of 0 keeps the real numbers easy to spot #}
+            <td class="text-end">{{ r.late_minutes|default:"—" }}</td>
+            <td class="text-end">{{ r.undertime_minutes|default:"—" }}</td>
+            <td class="text-end">{{ r.absent_minutes|default:"—" }}</td>
+            <td class="text-end fw-semibold">{{ r.lost_minutes|default:"—" }}</td>
+            <td class="text-end">{{ r.overtime_minutes|default:"—" }}</td>
+          {% else %}
+            <td>{% if r.incomplete %}<span class="badge-status s-absent">{{ r.missing }} missing</span>{% else %}—{% endif %}</td>
+          {% endif %}
+        </tr>
+        {% empty %}
+        <tr><td colspan="11" class="text-center text-muted py-4">No attendance records in this range.</td></tr>
+        {% endfor %}
+      </tbody>
+      {% if records %}
+      <tfoot><tr class="fw-bold">
+        {% if employee.is_fulltime %}
+          <td colspan="6">Total · {{ records|length }} day{{ records|length|pluralize }} <span class="text-muted fw-normal small">(minutes)</span></td>
+          <td class="text-end">{{ totals.late_minutes }}</td>
+          <td class="text-end">{{ totals.undertime_minutes }}</td>
+          <td class="text-end">{{ totals.absent_minutes }}</td>
+          <td class="text-end">{{ totals.lost_minutes }}</td>
+          <td class="text-end">{{ totals.overtime_minutes }}</td>
+        {% else %}
+          <td colspan="3">Total · {{ records|length }} day{{ records|length|pluralize }}</td>
+          <td class="text-end">{{ totals.worked }}</td>
+          <td colspan="2"></td>
+        {% endif %}
+      </tr></tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>

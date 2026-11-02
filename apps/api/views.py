@@ -24,7 +24,7 @@ from .permissions import IsEmployeeUser
 from .usernames import UNAVAILABLE_MESSAGE
 
 logger = logging.getLogger('apps.api')
-from .selectors import build_daily_attendance, monthly_summary
+from .selectors import build_daily_attendance, monthly_summary, weekly_hours
 from .serializers import (
     AttendanceSummarySerializer,
     ChangePasswordSerializer,
@@ -211,12 +211,47 @@ class AttendanceSummaryView(APIView):
         return Response(AttendanceSummarySerializer(data).data)
 
 
+class AttendanceWeeklyView(APIView):
+    """Part-time weekly hours (Mon-Sun) vs. the employee's requirement, newest
+    first. ?start=&end= (YYYY-MM-DD; default: the last 4 weeks). Full-timers
+    aren't judged per week, so they get an empty list."""
+
+    permission_classes = [IsEmployeeUser]
+
+    def get(self, request):
+        today = trusted_localdate()
+        end = _parse_date(request.query_params.get('end')) or today
+        start = _parse_date(request.query_params.get('start')) or (end - timedelta(days=27))
+        if start > end:
+            return Response(
+                {'detail': 'start must be on or before end.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        employee = request.user.employee
+        weeks = [] if employee.is_fulltime else weekly_hours(employee, start, end, today=today)
+        return Response({'results': list(reversed(weeks))})
+
+
 class NotificationListView(ListAPIView):
     permission_classes = [IsEmployeeUser]
     serializer_class = NotificationSerializer
 
     def get_queryset(self):
         return Notification.objects.filter(employee=self.request.user.employee)
+
+
+class NotificationReadView(APIView):
+    """Mark one of the employee's own notifications as read (idempotent)."""
+
+    permission_classes = [IsEmployeeUser]
+
+    def post(self, request, pk):
+        updated = Notification.objects.filter(
+            pk=pk, employee=request.user.employee,
+        ).update(is_read=True)
+        if not updated:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'detail': 'read'})
 
 
 class DeviceRegisterView(APIView):

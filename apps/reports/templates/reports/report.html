@@ -2,45 +2,172 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <title>{{ doc_title }}</title>
   <style>
-    @page { size: A4 landscape; margin: 1.5cm; }
-    body { font-family: Helvetica, Arial, sans-serif; color: #222; font-size: 10px; }
-    .header { text-align: center; margin-bottom: 12px; border-bottom: 2px solid #6D28D9; padding-bottom: 8px; }
-    .header img { height: 46px; margin-bottom: 4px; }
-    .institution { font-size: 16px; font-weight: bold; color: #6D28D9; }
-    .title { font-size: 12px; margin-top: 4px; }
-    .meta { font-size: 9px; color: #666; margin-top: 2px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th { background-color: #6D28D9; color: #fff; padding: 5px; text-align: left; font-size: 9px; }
-    td { padding: 4px 5px; border-bottom: 1px solid #ddd; font-size: 9px; }
-    tr:nth-child(even) td { background-color: #f6f8fa; }
-    .empty { text-align: center; color: #999; padding: 20px; }
-    .footer { position: fixed; bottom: 0; width: 100%; text-align: center; font-size: 8px; color: #999; }
+    /* Long bond, portrait: 8.5 x 13 in = 612 x 936 pt. xhtml2pdf frames take
+       absolute positions, so the footer frame must match the page size. */
+    @page {
+      size: 612pt 936pt;
+      margin: 36pt 36pt 54pt 36pt;
+      @frame footer_frame {
+        -pdf-frame-content: footer_content;
+        left: 36pt; width: 540pt; top: 893pt; height: 24pt;
+      }
+    }
+    body { font-family: Helvetica; font-size: 8.5pt; color: #111111; }
+
+    /* Letterhead */
+    .letterhead td { vertical-align: middle; }
+    .inst { font-family: Times-Bold; font-size: 18pt; text-align: center; color: #111111; }
+    .inst-sub { font-family: Times-Roman; font-size: 9.5pt; text-align: center; color: #333333; padding-top: 1pt; }
+    .rule-thick { border-top: 2pt solid #2e1065; margin-top: 6pt; }
+    .rule-thin { border-top: 0.5pt solid #2e1065; margin-top: 1.5pt; }
+
+    .doc-title { font-family: Times-Bold; font-size: 13pt; text-align: center;
+                 text-transform: uppercase; margin-top: 12pt; }
+    .doc-sub { font-size: 8.5pt; text-align: center; color: #333333; margin-top: 2pt; }
+
+    .section { font-family: Helvetica-Bold; font-size: 8.5pt; text-transform: uppercase;
+               color: #2e1065; margin-top: 12pt; margin-bottom: 4pt;
+               border-bottom: 0.75pt solid #2e1065; padding-bottom: 2pt;
+               -pdf-keep-with-next: true; }
+
+    /* Key / value blocks (details + summary) */
+    table.kv { width: 100%; }
+    table.kv td { border: 0.5pt solid #9ca3af; padding: 3pt 5pt 1pt 5pt; }
+    table.kv td.k { background-color: #f3f4f6; font-family: Helvetica-Bold; }
+    table.kv td.kv-head { background-color: #e5e7eb; font-family: Helvetica-Bold;
+                          text-transform: uppercase; font-size: 7.5pt; }
+    table.kv td.n { text-align: right; }
+    tr.strong td { font-family: Helvetica-Bold; }
+
+    /* Detail table */
+    table.grid { width: 100%; }
+    table.grid th { background-color: #e5e7eb; font-family: Helvetica-Bold; font-size: 7pt;
+                    border: 0.5pt solid #6b7280; padding: 3pt 3pt 1pt 3pt; text-align: center;
+                    vertical-align: middle; }
+    table.grid td { border: 0.5pt solid #9ca3af; padding: 3pt 3pt 1pt 3pt; vertical-align: middle;
+                    font-size: 8pt; }
+    table.grid td.num { text-align: right; }
+    table.grid tr.totals td { font-family: Helvetica-Bold; background-color: #f3f4f6;
+                              border-top: 1.25pt solid #111111; }
+
+    .empty { text-align: center; color: #555555; padding: 18pt; border: 0.5pt solid #9ca3af; }
+
+    /* Certification + signatures */
+    /* Statement and signatures never split across pages. */
+    .certify { margin-top: 16pt; font-family: Times-Roman; font-style: italic; font-size: 9.5pt;
+               -pdf-keep-with-next: true; }
+    table.sign { width: 100%; margin-top: 30pt; }
+    table.sign td { text-align: center; vertical-align: top; }
+    td.sign-line { border-top: 0.75pt solid #111111; padding-top: 3pt; font-family: Helvetica-Bold; }
+    .sign-role { font-family: Helvetica; font-size: 7.5pt; color: #333333; }
+
+    /* Footer */
+    #footer_content td { font-size: 7pt; color: #555555; }
   </style>
 </head>
 <body>
-  <div class="header">
-    {% if logo_path %}<img src="{{ logo_path }}" alt="logo">{% endif %}
-    <div class="institution">{{ institution }}</div>
-    <div class="title">{{ title }}</div>
-    <div class="meta">Generated: {{ generated_at }}</div>
+  <!-- Footer, repeated on every page -->
+  <div id="footer_content">
+    <table><tr>
+      <td>{{ institution }} · Biometric Attendance Monitoring System · System-generated on {{ generated_at }}</td>
+      <td style="text-align: right; width: 22%;">Page <pdf:pagenumber> of <pdf:pagecount></td>
+    </tr></table>
   </div>
 
-  {% if rows %}
-  <table>
-    <thead>
-      <tr>{% for col in columns %}<th>{{ col }}</th>{% endfor %}</tr>
-    </thead>
+  <!-- Letterhead -->
+  <table class="letterhead"><tr>
+    <td style="width: 70pt;">{% if logo_path %}<img src="{{ logo_path }}" style="height: 54pt; width: 54pt;">{% endif %}</td>
+    <td>
+      <div class="inst">{{ institution|upper }}</div>
+      <div class="inst-sub">Biometric Attendance Monitoring System</div>
+    </td>
+    <td style="width: 70pt;">&nbsp;</td>
+  </tr></table>
+  <div class="rule-thick"></div>
+  <div class="rule-thin"></div>
+
+  <div class="doc-title">{{ doc_title }}</div>
+  {% if not subject_rows %}<div class="doc-sub">{{ title }}</div>{% endif %}
+
+  {% if subject_rows %}
+  <div class="section">Employee Information</div>
+  <table class="kv">
+    {% for pairs in subject_rows %}
+    <tr>
+      {% for label, value in pairs %}
+      <td class="k" style="width: 15%;">{{ label }}</td>
+      <td style="width: 35%;"{% if pairs|length == 1 %} colspan="3"{% endif %}>{{ value }}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if summary %}
+  <div class="section">Summary of Totals</div>
+  <table><tr>
+    {% for heading, items in summary %}
+    <td style="vertical-align: top; {% if not forloop.last %}padding-right: 10pt;{% endif %}">
+      <table class="kv">
+        <tr><td class="kv-head" colspan="2">{{ heading }}</td></tr>
+        {% for label, value, is_total in items %}
+        <tr{% if is_total %} class="strong"{% endif %}><td class="k" style="width: 55%;">{{ label }}</td><td class="n">{{ value }}</td></tr>
+        {% endfor %}
+      </table>
+    </td>
+    {% endfor %}
+  </tr></table>
+  {% endif %}
+
+  {% if weeks_table %}
+  <div class="section">{{ weeks_table.heading }}</div>
+  {% if weeks_table.rows %}
+  <table class="grid" repeat="1">
+    <thead><tr>{% for col in weeks_table.columns %}<th>{{ col }}</th>{% endfor %}</tr></thead>
     <tbody>
-      {% for row in rows %}
-      <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+      {% for row in weeks_table.rows %}
+      <tr>{% for c in row %}<td{% if c.num %} class="num"{% endif %}>{{ c.v }}</td>{% endfor %}</tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <div class="empty">No records for the selected criteria.</div>
+  <div class="empty">No weeks in the selected period.</div>
+  {% endif %}
   {% endif %}
 
-  <div class="footer">Biometric Attendance Monitoring System — {{ institution }}</div>
+  <!-- No keep-with-next here: it would drag the whole (multi-page) table to
+       the next page rather than let it start under the summary. -->
+  <div class="section" style="-pdf-keep-with-next: false;">{% if subject_rows %}Daily Attendance Record{% else %}Records{% endif %}</div>
+  {% if rows %}
+  <table class="grid" repeat="1">
+    <thead>
+      <tr>{% for col, width in columns %}<th{% if width %} width="{{ width }}"{% endif %}>{{ col }}</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>{% for c in row %}<td{% if c.num %} class="num"{% endif %}>{{ c.v }}</td>{% endfor %}</tr>
+      {% endfor %}
+      {% if totals %}
+      <tr class="totals">{% for c in totals %}<td colspan="{{ c.span }}"{% if c.num %} class="num"{% endif %}>{{ c.v }}</td>{% endfor %}</tr>
+      {% endif %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No records for the selected period.</div>
+  {% endif %}
+
+  {% if signatory %}
+  <div class="certify">
+    I certify on my honor that the above is a true and correct report of my attendance for the
+    period covered, as recorded by the institution's biometric attendance system.
+  </div>
+  <table class="sign"><tr>
+    <td style="width: 44%;" class="sign-line">{{ signatory|upper }}<br><span class="sign-role">Employee</span></td>
+    <td style="width: 12%;">&nbsp;</td>
+    <td style="width: 44%;" class="sign-line">&nbsp;<br><span class="sign-role">Verified by: Department Head / HR Officer</span></td>
+  </tr></table>
+  {% endif %}
 </body>
 </html>

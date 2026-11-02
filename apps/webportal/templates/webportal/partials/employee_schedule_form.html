@@ -1,10 +1,13 @@
 <div class="modal-header">
-  <h5 class="modal-title">Schedule override — {{ employee.full_name }}</h5>
+  <h5 class="modal-title">
+    {% if onboarding %}<span class="text-muted small fw-normal d-block">Step 2 of 2 · {{ employee.full_name }} was added</span>Set up schedule
+    {% else %}Schedule override — {{ employee.full_name }}{% endif %}</h5>
   <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
 </div>
-<form hx-post="{{ request.path }}" hx-target="#modalContent" hx-swap="innerHTML">
+<form hx-post="{{ action_url|default:request.path }}" hx-target="#modalContent" hx-swap="innerHTML">
   <div class="modal-body">
     {% csrf_token %}
+    {% if onboarding %}<input type="hidden" name="onboarding" value="1">{% endif %}
     <p class="text-muted small mb-2">Leave a field blank to inherit the global default.
       Effective now: AM {{ effective.am_in|time:"H:i" }}–{{ effective.am_out|time:"H:i" }},
       PM {{ effective.pm_in|time:"H:i" }}–{{ effective.pm_out|time:"H:i" }},
@@ -28,7 +31,12 @@
     </div>
   </div>
   <div class="modal-footer">
+    {% if onboarding %}
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Skip — use the global schedule</button>
+    <button type="submit" class="btn btn-primary">Save schedule</button>
+    {% else %}
     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
     <button type="submit" class="btn btn-primary">Save override</button>
+    {% endif %}
   </div>
 </form>

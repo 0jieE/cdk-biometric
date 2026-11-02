@@ -1,0 +1,12 @@
+{% if device %}
+  {% if online %}
+    <span class="badge-status s-present" title="{{ device.name }} ({{ device.ip_address }}:{{ device.port }})">
+      <i class="bi bi-wifi"></i> Device Connected</span>
+  {% else %}
+    <span class="badge-status s-absent" title="{{ device.name }} ({{ device.ip_address }}:{{ device.port }})">
+      <i class="bi bi-wifi-off"></i> Device Offline</span>
+  {% endif %}
+{% else %}
+  <a class="badge-status s-neutral" href="{% url 'webportal:devices' %}" title="No active device configured">
+    <i class="bi bi-question-circle"></i> No Device</a>
+{% endif %}

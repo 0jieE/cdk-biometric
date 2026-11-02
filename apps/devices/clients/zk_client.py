@@ -97,6 +97,20 @@ class ZKDeviceClient(BaseDeviceClient):
             logger.warning('ZK device unreachable at %s:%s', self.ip, self.port)
             return False
 
+    def quick_check(self, timeout: float = 2) -> bool:
+        """Plain TCP reachability probe - deliberately bypasses pyzk's own
+        connect(), whose internal test_tcp() pre-check hardcodes a 10s
+        timeout regardless of what's configured, which makes it unusable for
+        anything that polls often (a dashboard badge). Not a protocol
+        handshake, just 'is the port open'."""
+        import socket
+
+        try:
+            with socket.create_connection((self.ip, self.port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
     def live_capture(self):  # pragma: no cover - hardware path
         """Stream punches in real time via pyzk's live_capture(). Long-running:
         yields a RawPunch the instant the unit registers a fingerprint. This is

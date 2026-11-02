@@ -8,8 +8,15 @@ Rules (locked):
     vs admin AM/PM in + grace; per-session absence (half-day possible).
   * Overtime is a privilege: computed ONLY when an OTAuthorization exists, from
     OT_IN/OT_OUT within the authorized window. No auto/threshold OT.
-  * Part-time: IN/OUT only, no tardiness/overtime; missing one punch => absent +
-    incomplete (with the correct missing side); no punch => plain absent.
+  * Part-time: IN/OUT only, no tardiness/overtime/absences; judged per week on
+    hours rendered (OUT - IN) against their weekly requirement, which must be
+    spread over at least the minimum number of days (default 2). Missing one
+    punch => that day is INCOMPLETE and renders 0 hours.
+  * Device punches within 5 minutes of the IN are duplicates, never the OUT
+    (``DUPLICATE_PUNCH_WINDOW``). Manual entries keep the type the admin chose.
+  * Forgot the AM time out: with an AM IN but no AM OUT, the first punch after
+    the midpoint and before PM IN is the AM_OUT; the next (1+ minute later)
+    starts the PM (see ``assign_fulltime_punches``).
 """
 
 from __future__ import annotations
@@ -25,7 +32,7 @@ from django.utils import timezone
 from apps.devices.clients import RawPunch, get_device_client
 from apps.organization.models import Employee, Holiday
 from apps.organization.schedule import get_effective_schedule
-from apps.organization.trusted_time import trusted_now
+from apps.organization.trusted_time import trusted_localdate, trusted_now
 
 from .models import (
     Absence,
@@ -46,6 +53,7 @@ STATUS_HALF_DAY = 'HALF_DAY'
 STATUS_ABSENT = 'ABSENT'
 STATUS_REST = 'REST'       # non-workday / holiday — nothing derived
 STATUS_PENDING = 'PENDING' # today, a session's time out hasn't been reached yet
+STATUS_INCOMPLETE = 'INCOMPLETE'  # part-time: only one of IN/OUT -> 0 hours
 
 
 def session_is_open(target_date: date_cls, sched_out: time, now=None) -> bool:
@@ -79,8 +87,17 @@ def minutes_undertime(actual_out: time, expected_out: time) -> int:
     return max(0, expected - actual)
 
 
+# A punch this soon after the IN is the same person pressing twice (or the
+# device re-sending), never them leaving: it doesn't become the OUT.
+DUPLICATE_PUNCH_WINDOW = timedelta(minutes=5)
+# Over lunch the AM OUT and the PM IN are often minutes apart, so between
+# those two only a much shorter gap counts as a double press.
+LUNCH_DUPLICATE_WINDOW = timedelta(minutes=1)
+
+
 def _group_in_out(sorted_dts, in_type, out_type, sched_out: time | None = None) -> dict:
-    """earliest => in_type; latest (if >1) => out_type.
+    """earliest => in_type; latest => out_type, but only if it's at least
+    ``DUPLICATE_PUNCH_WINDOW`` after the IN (closer punches are duplicates).
 
     ``sched_out``, when given, blocks a punch at/after that time from ever
     becoming the IN: a session's whole point is that IN happens before
@@ -97,13 +114,14 @@ def _group_in_out(sorted_dts, in_type, out_type, sched_out: time | None = None) 
     if sched_out is not None and timezone.localtime(sorted_dts[0]).time() >= sched_out:
         return {out_type: sorted_dts[-1]}
     result = {in_type: sorted_dts[0]}
-    if len(sorted_dts) > 1:
+    if sorted_dts[-1] - sorted_dts[0] >= DUPLICATE_PUNCH_WINDOW:
         result[out_type] = sorted_dts[-1]
     return result
 
 
 def assign_fulltime_punches(times, midpoint: time, ot_start: time | None = None,
-                             am_out: time | None = None, pm_out: time | None = None) -> dict:
+                             am_out: time | None = None, pm_out: time | None = None,
+                             pm_in: time | None = None) -> dict:
     """Classify a full-time employee's punches for one day into log types.
 
     AM = at/before midpoint. If ``ot_start`` (authorization) is given, PM = after
@@ -111,6 +129,12 @@ def assign_fulltime_punches(times, midpoint: time, ot_start: time | None = None,
     there is no OT window (late punches simply extend PM_OUT — unless every AM
     or PM punch is at/after that session's ``am_out``/``pm_out``, in which case
     none of them qualify as an IN; see ``_group_in_out``).
+
+    Forgot to time out for the morning: when the AM has an IN but no OUT, the
+    first punch in the lunch window (after ``midpoint``, before ``pm_in``) is
+    the AM_OUT, and only from the next punch on is it PM. Between those two a
+    1-minute gap is enough (``LUNCH_DUPLICATE_WINDOW``). Batch sync and the
+    live listener both reclassify the whole day through here, so they agree.
     """
     ordered = sorted(times)
     am, pm, ot = [], [], []
@@ -123,8 +147,12 @@ def assign_fulltime_punches(times, midpoint: time, ot_start: time | None = None,
         else:
             pm.append(dt)
 
-    result = {}
-    result.update(_group_in_out(am, 'AM_IN', 'AM_OUT', am_out))
+    result = _group_in_out(am, 'AM_IN', 'AM_OUT', am_out)
+    if pm_in is not None and 'AM_IN' in result and 'AM_OUT' not in result:
+        lunch = [dt for dt in pm if timezone.localtime(dt).time() < pm_in]
+        if lunch:
+            result['AM_OUT'] = lunch[0]
+            pm = [dt for dt in pm if dt - lunch[0] >= LUNCH_DUPLICATE_WINDOW]
     result.update(_group_in_out(pm, 'PM_IN', 'PM_OUT', pm_out))
     if ot_start is not None:
         result.update(_group_in_out(ot, 'OT_IN', 'OT_OUT'))
@@ -160,9 +188,23 @@ def sync_attendance(device=None, since: datetime | None = None) -> dict:
 
 def _store_log(employee_id, device, log_dt, log_type, source=None, created_by=None):
     """Insert one AttendanceLog respecting the unique constraint.
-    Returns (log, was_created); (None, False) on a losing insert race."""
+    Returns (log, was_created); (None, False) on a losing insert race.
+
+    One physical punch is one row: if this instant is already stored under a
+    different type (a later punch changed its meaning - e.g. a 12:40 PM_IN that
+    became the AM_OUT once the morning's IN arrived), it is re-labelled rather
+    than stored twice. Manual entries are never re-labelled."""
     try:
         with transaction.atomic():
+            same_instant = AttendanceLog.objects.filter(
+                employee_id=employee_id, log_datetime=log_dt).exclude(
+                source=AttendanceLog.Source.MANUAL)
+            if not same_instant.filter(log_type=log_type).exists():
+                stale = same_instant.first()
+                if stale is not None:
+                    stale.log_type = log_type
+                    stale.save(update_fields=['log_type'])
+                    return stale, False
             log, was_created = AttendanceLog.objects.get_or_create(
                 employee_id=employee_id,
                 log_datetime=log_dt,
@@ -223,13 +265,7 @@ def ingest_punches(raw_punches, device=None, source=None, notify=True) -> dict:
         sched = get_effective_schedule(employee)
         for day, times in per_date.items():
             all_times = sorted(set(times) | _existing_log_times(employee, day))
-            if employee.is_fulltime:
-                auth = OTAuthorization.objects.filter(employee=employee, date=day).first()
-                assigned = assign_fulltime_punches(
-                    all_times, sched.midpoint, auth.ot_start if auth else None,
-                    am_out=sched.am_out, pm_out=sched.pm_out)
-            else:
-                assigned = assign_parttime_punches(all_times)
+            assigned = classify_day(employee, sched, day, all_times)
 
             for log_type, log_dt in assigned.items():
                 log, was_created = _store_log(emp_id, device, log_dt, log_type, source=source)
@@ -255,6 +291,17 @@ def ingest_punches(raw_punches, device=None, source=None, notify=True) -> dict:
         'lates': lates, 'undertimes': undertimes,
         'absences': absences, 'overtime': ot_records,
     }
+
+
+def classify_day(employee, sched, day: date_cls, times) -> dict:
+    """{log_type: datetime} for one employee-day's sorted punch times, by the
+    current rules (full-time 4-punch / OT window, or part-time IN/OUT)."""
+    if employee.is_fulltime:
+        auth = OTAuthorization.objects.filter(employee=employee, date=day).first()
+        return assign_fulltime_punches(
+            times, sched.midpoint, auth.ot_start if auth else None,
+            am_out=sched.am_out, pm_out=sched.pm_out, pm_in=sched.pm_in)
+    return assign_parttime_punches(times)
 
 
 def _existing_log_times(employee, target_date: date_cls) -> set:
@@ -292,6 +339,45 @@ def _day_logs(employee, target_date: date_cls) -> dict:
     return picked
 
 
+def _nearest_workday(target_date: date_cls, workdays, step: int, max_days: int = 14):
+    """Walk from ``target_date`` in steps of ``step`` (+1 or -1) to the nearest
+    day whose weekday is in ``workdays``. None if nothing turns up within
+    ``max_days`` (e.g. an employee with no scheduled workdays at all)."""
+    d = target_date
+    for _ in range(max_days):
+        d = d + timedelta(days=step)
+        if d.weekday() in workdays:
+            return d
+    return None
+
+
+def holiday_requires_attendance(employee, sched, target_date: date_cls, today=None) -> bool:
+    """A holiday normally needs no punch at all. But if the employee was ALSO
+    absent (no punch) on the nearest workday immediately before or after it,
+    the holiday itself starts requiring attendance too - this is what catches
+    an unauthorized leave padded onto a holiday. Weekends/other holidays don't
+    count as the "nearest workday" - the comparison always skips to a real
+    scheduled day. A following workday that hasn't happened yet gets the
+    benefit of the doubt (treated as present) until it actually occurs.
+    """
+    today = today or trusted_localdate()
+    prev_day = _nearest_workday(target_date, sched.workdays, -1)
+    next_day = _nearest_workday(target_date, sched.workdays, 1)
+
+    present_prev = prev_day is None or bool(_day_logs(employee, prev_day))
+    present_next = (next_day is None or next_day > today
+                    or bool(_day_logs(employee, next_day)))
+
+    return not (present_prev and present_next)
+
+
+def event_requirement_met(day_logs, sessions) -> bool:
+    """On an attendance-required special holiday: has every required session
+    both its IN and OUT punch? ``day_logs`` is keyed by log type."""
+    return bool(sessions) and all(
+        day_logs.get(f'{s}_IN') and day_logs.get(f'{s}_OUT') for s in sessions)
+
+
 @transaction.atomic
 def process_day(employee, target_date: date_cls, now=None) -> dict:
     """Recompute all derived rows (Lates/Absence/Overtime) for one (employee,
@@ -308,13 +394,27 @@ def process_day(employee, target_date: date_cls, now=None) -> dict:
 
     if target_date.weekday() not in sched.workdays:
         return result
-    if Holiday.objects.filter(date=target_date).exists():
-        return result
 
     logs = _day_logs(employee, target_date)
+    holiday = Holiday.objects.filter(date=target_date).first()
+    event_sessions = holiday.required_sessions if holiday else ()
+    if event_sessions:
+        # Event day (special holiday, attendance required). Completing the
+        # required session(s) credits the whole day: present, nothing late,
+        # undertime or absent. Until then - or if they never do - it's an
+        # ordinary workday, and the bridging exemption below doesn't apply.
+        if employee.is_fulltime and event_requirement_met(logs, event_sessions):
+            result['status'] = STATUS_PRESENT
+            result['overtime'] = _compute_overtime(employee, target_date, logs)
+            return result
+    elif holiday and not logs:
+        today = timezone.localtime(now).date() if now else None
+        if not holiday_requires_attendance(employee, sched, target_date, today=today):
+            return result  # exempt: no punch needed, nothing bridged against it
+
     if employee.is_fulltime:
         return _process_fulltime(employee, target_date, sched, logs, now)
-    return _process_parttime(employee, target_date, logs, sched.pm_out, now)
+    return _process_parttime(employee, target_date, sched, logs, now)
 
 
 def _process_fulltime(employee, target_date, sched, logs, now=None) -> dict:
@@ -361,7 +461,8 @@ def _process_fulltime(employee, target_date, sched, logs, now=None) -> dict:
                 reason, incomplete = Absence.Reason.NO_PUNCH, False
             Absence.objects.create(
                 employee=employee, date=target_date, session=session,
-                reason=reason, incomplete=incomplete)
+                reason=reason, incomplete=incomplete,
+                minutes_absent=sched.session_minutes(session))
             absences += 1
 
     if pending:
@@ -402,29 +503,21 @@ def _compute_overtime(employee, target_date, logs) -> int:
     return 1
 
 
-def _process_parttime(employee, target_date, logs, day_out, now=None) -> dict:
+def _process_parttime(employee, target_date, sched, logs, now=None) -> dict:
+    """Part-timers are judged per WEEK on hours rendered (see
+    ``apps.api.selectors.weekly_hours``), never per day: a day without them is
+    simply a day they didn't come in, so no Absence row is ever created. A day
+    with only one punch renders 0 hours and is reported INCOMPLETE."""
     in_log = logs.get('IN')
     out_log = logs.get('OUT')
 
     if in_log and out_log:
-        return {'status': STATUS_PRESENT, 'lates': 0, 'undertimes': 0,
-                'absences': 0, 'overtime': 0}
-
-    # Part-timers have no per-session schedule: the day is undecided until the
-    # end of the working day (the schedule's last time out).
-    if session_is_open(target_date, day_out, now):
-        return {'status': STATUS_PENDING, 'lates': 0, 'undertimes': 0,
-                'absences': 0, 'overtime': 0}
-
-    if in_log or out_log:
-        reason = Absence.Reason.MISSING_OUT if in_log else Absence.Reason.MISSING_IN
-        Absence.objects.create(
-            employee=employee, date=target_date, session=Session.FULL,
-            reason=reason, incomplete=True)
+        status = STATUS_PRESENT
+    elif session_is_open(target_date, sched.pm_out, now):
+        # Undecided until the end of the working day (the schedule's last out).
+        status = STATUS_PENDING
+    elif in_log or out_log:
+        status = STATUS_INCOMPLETE
     else:
-        Absence.objects.create(
-            employee=employee, date=target_date, session=Session.FULL,
-            reason=Absence.Reason.NO_PUNCH, incomplete=False)
-
-    return {'status': STATUS_ABSENT, 'lates': 0, 'undertimes': 0,
-            'absences': 1, 'overtime': 0}
+        status = STATUS_REST
+    return {'status': status, 'lates': 0, 'undertimes': 0, 'absences': 0, 'overtime': 0}

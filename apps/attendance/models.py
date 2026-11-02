@@ -92,7 +92,7 @@ class Undertime(TimeStampedModel):
 
     Exact minutes, NO grace period (grace is an arrival-only allowance).
     Full-time only; part-time has no fixed schedule so undertime cannot apply.
-    Together with Lates this gives lost time = minutes_late + minutes_undertime.
+    Lost time = minutes_late + minutes_undertime + Absence.minutes_absent.
     """
 
     employee = models.ForeignKey(
@@ -134,6 +134,9 @@ class Absence(TimeStampedModel):
         max_length=16, choices=Reason.choices, default=Reason.NO_PUNCH)
     # Part-time: exactly one of in/out present (the existing punch is retained).
     incomplete = models.BooleanField(default=False)
+    # The missed session's scheduled length (AM 8-12 = 240; a FULL day = AM+PM),
+    # frozen when the day is processed. Counts toward lost time.
+    minutes_absent = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ['-date']
@@ -147,6 +150,27 @@ class Absence(TimeStampedModel):
     def __str__(self) -> str:
         flag = ' (incomplete)' if self.incomplete else ''
         return f'{self.employee.employee_no} absent {self.session} on {self.date}{flag}'
+
+
+class ProcessingCursor(TimeStampedModel):
+    """The last fully-past day whose absences/lates/undertime/overtime were
+    computed. The live job only ever processes *today*, so any day the stack
+    was down for would otherwise never get its rows; each sync catches up every
+    day after this one (see ``catch_up_finalized_days``). Single row (pk=1)."""
+
+    last_finalized_date = models.DateField(null=True, blank=True)
+
+    def __str__(self) -> str:
+        return f'finalized through {self.last_finalized_date or "never"}'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # singleton
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> 'ProcessingCursor':
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
 
 
 class OTAuthorization(TimeStampedModel):

@@ -763,12 +763,13 @@ table.dataTable > tbody > tr.child ul.dtr-details > li { border-bottom: 1px soli
 }
 
 /* --------------------------------------------- lost-time summary ---------- */
-.lost-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 18px; }
+.lost-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
 .lost-tile { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; text-align: center; }
 .lost-tile.lost-total { border-color: color-mix(in srgb, var(--absent) 40%, var(--line)); }
 .lost-num { font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 26px; line-height: 1; }
 .lost-label { color: var(--muted); font-size: 12px; font-weight: 500; margin-top: 5px; }
 .text-half { color: var(--half) !important; }
+@media (max-width: 900px) { .lost-summary { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .lost-summary { grid-template-columns: 1fr; } }
 
 /* ------------------------------------------------------- calendar --------- */
@@ -1169,6 +1170,39 @@ button.stat-card { width: 100%; text-align: left; font: inherit; }
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .stat .num { font-size: 24px; }
 }
+
+/* employee profile: attendance records - long ranges scroll inside the card,
+   with the header and totals pinned */
+.records-scroll { max-height: 560px; overflow-y: auto; }
+.records-scroll thead th { position: sticky; top: 0; z-index: 1; background: var(--th-bg); }
+.records-scroll tfoot td { position: sticky; bottom: 0; background: var(--th-bg); border-top: 2px solid var(--line); }
+
+/* buttons that take a while (device Sync/Test): swap to a spinner + "…ing"
+   label while htmx has the request open */
+.btn-busy { display: none; }
+.htmx-request .btn-busy { display: inline; }
+.htmx-request .btn-idle { display: none; }
+.btn.htmx-request:has(.btn-busy) { pointer-events: none; opacity: .7; }   /* no double-clicks */
+.btn-busy .spinner-border { width: .85rem; height: .85rem; border-width: .15em; vertical-align: -1px; }
+
+/* pop-up notifications (toasts) - top-right, above modals */
+.toast-stack { position: fixed; top: 16px; right: 16px; z-index: 1090; display: flex; flex-direction: column;
+  gap: 10px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+.app-toast { --tone: var(--brand); pointer-events: auto; display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 12px 12px 14px; background: var(--card); color: var(--ink); border: 1px solid var(--line);
+  border-left: 4px solid var(--tone); border-radius: 12px; box-shadow: var(--shadow-lg); font-size: 13.5px;
+  opacity: 0; transform: translateX(24px); transition: opacity .2s ease, transform .2s ease; }
+.app-toast.show { opacity: 1; transform: none; }
+.app-toast.leaving { opacity: 0; transform: translateX(24px); }
+.app-toast.toast-success { --tone: var(--ok); }
+.app-toast.toast-error   { --tone: var(--absent); }
+.app-toast.toast-warning { --tone: var(--late); }
+.toast-icon { color: var(--tone); font-size: 18px; line-height: 1.2; }
+.toast-body-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-title { font-weight: 700; margin-bottom: 2px; }
+.app-toast .btn-close { font-size: 10px; margin-top: 3px; }
+.surface-dark .app-toast .btn-close { filter: invert(1) grayscale(100%) brightness(200%); }
+@media (prefers-reduced-motion: reduce) { .app-toast { transition: none; } }
 
 /* active-employees dashboard modal */
 .active-emp-row:hover { background: var(--bg); border-radius: 10px; padding-left: 6px; padding-right: 6px; margin: 0 -6px; }

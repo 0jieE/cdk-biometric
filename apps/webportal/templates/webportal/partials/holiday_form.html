@@ -42,6 +42,22 @@
     <div class="form-check mt-3">
       {{ form.is_recurring }}<label class="form-check-label ms-1">Recurs every year (same month & day)</label>
     </div>
+
+    <!-- Special holidays only: an event day that needs attendance. -->
+    <div id="hol-event" class="hol-event mt-3" {% if form.type.value != 'SPECIAL' %}hidden{% endif %}>
+      <div class="form-check">
+        {{ form.attendance_required }}<label class="form-check-label ms-1" for="{{ form.attendance_required.id_for_label }}">Attendance required</label>
+      </div>
+      <div id="hol-sessions" class="ms-4 mt-2" {% if not form.attendance_required.value %}hidden{% endif %}>
+        <div class="small text-muted mb-1">Which punches are required? Completing them counts as
+          <b>present for the whole day</b>. If they're not completed, the day is judged as a normal workday.</div>
+        <div class="d-flex gap-3">
+          <div class="form-check">{{ form.required_am }}<label class="form-check-label ms-1" for="{{ form.required_am.id_for_label }}">AM attendance</label></div>
+          <div class="form-check">{{ form.required_pm }}<label class="form-check-label ms-1" for="{{ form.required_pm.id_for_label }}">PM attendance</label></div>
+        </div>
+        {% if form.required_am.errors %}<div class="text-danger small">{{ form.required_am.errors|striptags }}</div>{% endif %}
+      </div>
+    </div>
   </div>
   <div class="modal-footer justify-content-between">
     <div>
@@ -63,5 +79,14 @@
     document.querySelectorAll('.hol-swatches .hol-sw').forEach(function (b) {
       b.addEventListener('click', function () { if (input) input.value = b.dataset.color; });
     });
+    // "Attendance required" only exists for Special; AM/PM only once it's ticked.
+    var type = document.getElementById('id_type');
+    var required = document.getElementById('id_attendance_required');
+    function sync() {
+      document.getElementById('hol-event').hidden = !type || type.value !== 'SPECIAL';
+      document.getElementById('hol-sessions').hidden = !required || !required.checked;
+    }
+    if (type) type.addEventListener('change', sync);
+    if (required) required.addEventListener('change', sync);
   })();
 </script>

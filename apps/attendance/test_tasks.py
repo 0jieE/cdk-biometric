@@ -58,10 +58,20 @@ class ProcessDailyAttendanceTests(TestCase):
         # on re-run.
         self.assertEqual(Notification.objects.filter(type='ABSENCE').count(), 2)
 
-    def test_skips_holiday(self):
+    def test_holiday_is_exempt_when_present_on_the_workdays_around_it(self):
+        Holiday.objects.create(date=WORKDAY, name='Holiday')
+        # Nearest workdays either side of Mon 6 Jul: Fri 3 Jul and Tue 7 Jul.
+        for d in (date(2026, 7, 3), date(2026, 7, 7)):
+            AttendanceLog.objects.create(employee=self.absent, log_type='AM_IN',
+                                         log_datetime=aware(d, time(8, 0)))
+        process_daily_attendance_task(WORKDAY.isoformat())
+        self.assertFalse(Absence.objects.filter(employee=self.absent, date=WORKDAY).exists())
+
+    def test_holiday_bridged_by_absences_counts_absent(self):
+        # No punch on the workdays around the holiday -> the holiday is absent too.
         Holiday.objects.create(date=WORKDAY, name='Holiday')
         process_daily_attendance_task(WORKDAY.isoformat())
-        self.assertFalse(Absence.objects.filter(date=WORKDAY).exists())
+        self.assertEqual(Absence.objects.filter(employee=self.absent, date=WORKDAY).count(), 2)
 
     def test_skips_non_workday(self):
         process_daily_attendance_task(SUNDAY.isoformat())

@@ -54,11 +54,22 @@ class DepartmentForm(BootstrapMixin, forms.ModelForm):
 class HolidayForm(BootstrapMixin, forms.ModelForm):
     class Meta:
         model = Holiday
-        fields = ('date', 'name', 'type', 'color', 'is_recurring')
+        fields = ('date', 'name', 'type', 'color', 'is_recurring',
+                  'attendance_required', 'required_am', 'required_pm')
+        labels = {'attendance_required': 'Attendance required',
+                  'required_am': 'AM attendance', 'required_pm': 'PM attendance'}
         widgets = {
             'date': forms.DateInput(attrs={'type': 'date'}),
             'color': forms.TextInput(attrs={'type': 'color', 'class': 'form-control form-control-color'}),
         }
+
+    def clean(self):
+        data = super().clean()
+        if data.get('type') != Holiday.Types.SPECIAL or not data.get('attendance_required'):
+            data['attendance_required'] = data['required_am'] = data['required_pm'] = False
+        elif not (data.get('required_am') or data.get('required_pm')):
+            self.add_error('required_am', 'Tick AM, PM or both: which punches are required?')
+        return data
 
 
 class DeviceForm(BootstrapMixin, forms.ModelForm):
@@ -170,6 +181,54 @@ class EmployeeScheduleForm(_WorkdaysMixin, BootstrapMixin, forms.ModelForm):
             self.fields['workdays'].initial = self.instance.workdays
 
 
+class ParttimeDefaultHoursForm(BootstrapMixin, forms.ModelForm):
+    """The weekly hours every part-timer owes unless set per person, and the
+    fewest different days those hours must be spread over."""
+
+    class Meta:
+        model = GlobalSchedule
+        fields = ('parttime_weekly_hours', 'parttime_min_days')
+        labels = {'parttime_weekly_hours': 'Default weekly hours',
+                  'parttime_min_days': 'Minimum days'}
+        widgets = {'parttime_weekly_hours': forms.NumberInput(
+                       attrs={'step': '0.5', 'min': '0.5', 'max': '168'}),
+                   'parttime_min_days': forms.NumberInput(
+                       attrs={'step': '1', 'min': '1', 'max': '7'})}
+
+    def clean_parttime_weekly_hours(self):
+        hours = self.cleaned_data['parttime_weekly_hours']
+        if not 0 < hours <= 168:
+            raise forms.ValidationError('Enter between 0.5 and 168 hours.')
+        return hours
+
+    def clean_parttime_min_days(self):
+        days = self.cleaned_data['parttime_min_days']
+        if not 1 <= days <= 7:
+            raise forms.ValidationError('Enter between 1 and 7 days.')
+        return days
+
+
+class EmployeeWeeklyHoursForm(BootstrapMixin, forms.ModelForm):
+    """One part-timer's own weekly hours; blank = the default."""
+
+    class Meta:
+        model = EmployeeSchedule
+        fields = ('weekly_hours',)
+        labels = {'weekly_hours': 'Weekly hours'}
+        widgets = {'weekly_hours': forms.NumberInput(
+            attrs={'step': '0.5', 'min': '0.5', 'max': '168'})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['weekly_hours'].required = False
+
+    def clean_weekly_hours(self):
+        hours = self.cleaned_data.get('weekly_hours')
+        if hours is not None and not 0 < hours <= 168:
+            raise forms.ValidationError('Enter between 0.5 and 168 hours, or leave blank.')
+        return hours
+
+
 class OTAuthorizationForm(BootstrapMixin, forms.ModelForm):
     class Meta:
         model = OTAuthorization
@@ -220,4 +279,38 @@ class ManualAttendanceForm(forms.Form):
                 raise forms.ValidationError(
                     'OT punches require an OT authorization for this employee '
                     'today (authorize it on the Overtime page first).')
+
+        self._reject_duplicate(emp, log_type)
         return cd
+
+    # OUT type -> the IN it closes.
+    _IN_FOR_OUT = {'AM_OUT': 'AM_IN', 'PM_OUT': 'PM_IN', 'OT_OUT': 'OT_IN', 'OUT': 'IN'}
+
+    def _reject_duplicate(self, emp, log_type):
+        """Same rule as device punches (DUPLICATE_PUNCH_WINDOW): within 5 minutes,
+        the same punch again - or an OUT right after its IN - is a double click,
+        not a new punch."""
+        from django.utils import timezone
+
+        from apps.attendance.services import DUPLICATE_PUNCH_WINDOW
+        from apps.organization.trusted_time import trusted_now
+
+        now = trusted_now()
+        types = [log_type] + ([self._IN_FOR_OUT[log_type]] if log_type in self._IN_FOR_OUT else [])
+        recent = (AttendanceLog.objects
+                  .filter(employee=emp, log_type__in=types,
+                          log_datetime__gt=now - DUPLICATE_PUNCH_WINDOW,
+                          log_datetime__lte=now)
+                  .order_by('-log_datetime').first())
+        if recent is None:
+            return
+        ago = max(0, int((now - recent.log_datetime).total_seconds() // 60))
+        when = timezone.localtime(recent.log_datetime).strftime('%I:%M %p').lstrip('0')
+        what = 'just now' if ago == 0 else f'{ago} min ago'
+        if recent.log_type == log_type:
+            msg = (f'Duplicate: {emp.full_name} already has {log_type} at {when} ({what}). '
+                   f'Punches within 5 minutes count as the same punch.')
+        else:
+            msg = (f'Too soon: {emp.full_name} recorded {recent.log_type} at {when} ({what}). '
+                   f'A punch within 5 minutes of it is a duplicate, not the {log_type}.')
+        raise forms.ValidationError(msg)

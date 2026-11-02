@@ -2,64 +2,137 @@
 {% block title %}Schedule{% endblock %}
 {% block heading %}Schedule Settings{% endblock %}
 {% block content %}
-<div class="card mb-3">
-  <div class="card-head"><span><i class="bi bi-building me-1"></i> Global Default <span class="text-muted fw-normal small">· institution-wide</span></span></div>
-  <div class="card-pad">
-    <form method="post" action="{% url 'webportal:schedule' %}">
-      {% csrf_token %}
-      <div class="row g-3 align-items-end">
-        {% for field in global_form %}
-          {% if field.name == 'workdays' %}
-            <div class="col-12">
-              <label class="form-label small">Workdays</label>
-              {% include 'webportal/partials/workday_toggles.html' with field=field idprefix='g-wd' %}
-            </div>
-          {% else %}
-            <div class="col-6 col-md-4 col-lg-2">
-              <label class="form-label small">{{ field.label }}</label>
-              {{ field }}
-              {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
-            </div>
-          {% endif %}
-        {% endfor %}
-      </div>
-      <button class="btn btn-primary btn-sm mt-3"><i class="bi bi-check-lg"></i> Save global schedule</button>
-    </form>
-  </div>
-</div>
+{% with pt=request.GET.tab|default:tab %}
+<ul class="nav nav-pills mb-3" role="tablist">
+  <li class="nav-item"><button class="nav-link {% if pt != 'parttime' %}active{% endif %}" data-bs-toggle="tab"
+      data-bs-target="#sched-ft" type="button"><i class="bi bi-person-badge"></i> Full-time</button></li>
+  <li class="nav-item"><button class="nav-link {% if pt == 'parttime' %}active{% endif %}" data-bs-toggle="tab"
+      data-bs-target="#sched-pt" type="button"><i class="bi bi-person"></i> Part-time</button></li>
+</ul>
 
-<div class="card">
-  <div class="card-head">
-    <span><i class="bi bi-person-gear me-1"></i> Per-employee overrides
-      <span class="text-muted fw-normal small">· blank fields inherit the global</span></span>
-    <input id="sched-search" class="form-control form-control-sm" style="max-width:220px"
-           placeholder="Search employee…" autocomplete="off">
+<div class="tab-content">
+  <!-- Full-time: daily AM/PM schedule -->
+  <div class="tab-pane fade {% if pt != 'parttime' %}show active{% endif %}" id="sched-ft" role="tabpanel">
+    <div class="card mb-3">
+      <div class="card-head"><span><i class="bi bi-building me-1"></i> Global Default <span class="text-muted fw-normal small">· institution-wide</span></span></div>
+      <div class="card-pad">
+        <form method="post" action="{% url 'webportal:schedule' %}">
+          {% csrf_token %}
+          <div class="row g-3 align-items-end">
+            {% for field in global_form %}
+              {% if field.name == 'workdays' %}
+                <div class="col-12">
+                  <label class="form-label small">Workdays</label>
+                  {% include 'webportal/partials/workday_toggles.html' with field=field idprefix='g-wd' %}
+                </div>
+              {% else %}
+                <div class="col-6 col-md-4 col-lg-2">
+                  <label class="form-label small">{{ field.label }}</label>
+                  {{ field }}
+                  {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+          <button class="btn btn-primary btn-sm mt-3"><i class="bi bi-check-lg"></i> Save global schedule</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span><i class="bi bi-person-gear me-1"></i> Per-employee overrides
+          <span class="text-muted fw-normal small">· blank fields inherit the global</span></span>
+        <input class="form-control form-control-sm sched-search" style="max-width:220px"
+               placeholder="Search employee…" autocomplete="off">
+      </div>
+      <div class="card-pad sched-list" id="emp-schedule-list"
+           hx-get="{% url 'webportal:employee_schedule_list' %}?type=FULL_TIME"
+           hx-trigger="load, refreshList from:body" hx-target="this">
+        <div class="text-muted">Loading…</div>
+      </div>
+    </div>
   </div>
-  <div class="card-pad" id="emp-schedule-list"
-       hx-get="{% url 'webportal:employee_schedule_list' %}"
-       hx-trigger="load, refreshList from:body" hx-target="#emp-schedule-list">
-    <div class="text-muted">Loading…</div>
+
+  <!-- Part-time: weekly hours -->
+  <div class="tab-pane fade {% if pt == 'parttime' %}show active{% endif %}" id="sched-pt" role="tabpanel">
+    <div class="card mb-3">
+      <div class="card-head"><span><i class="bi bi-hourglass-split me-1"></i> Weekly Hours Requirement
+        <span class="text-muted fw-normal small">· all part-timers, unless set per person</span></span></div>
+      <div class="card-pad">
+        <form method="post" action="{% url 'webportal:schedule_parttime_default' %}">
+          {% csrf_token %}
+          <div class="row g-3 align-items-end">
+            <div class="col-6 col-md-4 col-lg-2">
+              <label class="form-label small">{{ parttime_form.parttime_weekly_hours.label }}</label>
+              <div class="input-group">
+                {{ parttime_form.parttime_weekly_hours }}
+                <span class="input-group-text">h / week</span>
+              </div>
+              {% if parttime_form.parttime_weekly_hours.errors %}<div class="text-danger small">{{ parttime_form.parttime_weekly_hours.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-6 col-md-4 col-lg-2">
+              <label class="form-label small">{{ parttime_form.parttime_min_days.label }}</label>
+              <div class="input-group">
+                {{ parttime_form.parttime_min_days }}
+                <span class="input-group-text">days / week</span>
+              </div>
+              {% if parttime_form.parttime_min_days.errors %}<div class="text-danger small">{{ parttime_form.parttime_min_days.errors|striptags }}</div>{% endif %}
+            </div>
+            <div class="col-12 col-lg">
+              <div class="text-muted small"><i class="bi bi-info-circle"></i>
+                Part-timers can come in any day. Each week (Mon–Sun) their hours rendered —
+                time out minus time in, on days with both punches — are checked against this.
+                The week is only met if those hours were spread over at least the minimum
+                number of different days. They are never marked absent for a day.</div>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm mt-3"><i class="bi bi-check-lg"></i> Save weekly requirement</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span><i class="bi bi-person-gear me-1"></i> Per-employee hours
+          <span class="text-muted fw-normal small">· blank follows the default</span></span>
+        <input class="form-control form-control-sm sched-search" style="max-width:220px"
+               placeholder="Search employee…" autocomplete="off">
+      </div>
+      <div class="card-pad sched-list" id="pt-schedule-list"
+           hx-get="{% url 'webportal:employee_schedule_list' %}?type=PART_TIME"
+           hx-trigger="load, refreshList from:body" hx-target="this">
+        <div class="text-muted">Loading…</div>
+      </div>
+    </div>
   </div>
 </div>
+{% endwith %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function () {
-  function filter() {
-    var q = ((document.getElementById('sched-search') || {}).value || '').trim().toLowerCase();
+  // Each tab's search box filters the cards in its own list.
+  function filter(pane) {
+    var input = pane.querySelector('.sched-search');
+    var q = ((input || {}).value || '').trim().toLowerCase();
     var shown = 0;
-    document.querySelectorAll('.sched-card').forEach(function (c) {
+    pane.querySelectorAll('.sched-card').forEach(function (c) {
       var vis = !q || c.dataset.search.indexOf(q) !== -1;
       c.style.display = vis ? '' : 'none';
       if (vis) shown++;
     });
-    var empty = document.getElementById('sched-empty');
+    var empty = pane.querySelector('.sched-empty');
     if (empty) empty.style.display = shown ? 'none' : '';
   }
-  document.addEventListener('input', function (e) { if (e.target.id === 'sched-search') filter(); });
+  document.addEventListener('input', function (e) {
+    if (e.target.classList.contains('sched-search')) filter(e.target.closest('.tab-pane'));
+  });
   document.body.addEventListener('htmx:afterSwap', function (e) {
-    if (e.detail.target && e.detail.target.id === 'emp-schedule-list') filter();
+    if (e.detail.target && e.detail.target.classList.contains('sched-list')) {
+      filter(e.detail.target.closest('.tab-pane'));
+    }
   });
 })();
 </script>

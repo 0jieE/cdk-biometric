@@ -1,0 +1,7 @@
+{% if online %}
+  <span class="badge-status s-present" title="Checked {{ checked_at|time:'H:i:s' }}">
+    <i class="bi bi-wifi"></i> Connected</span>
+{% else %}
+  <span class="badge-status s-absent" title="Checked {{ checked_at|time:'H:i:s' }} - no answer from {{ device.ip_address }}:{{ device.port }}">
+    <i class="bi bi-wifi-off"></i> Offline</span>
+{% endif %}

@@ -36,7 +36,7 @@
             <span class="hol-item-day" style="background:{{ h.color }}">{{ h.day|stringformat:"02d" }}</span>
             <span class="hol-item-body">
               <span class="hol-item-name">{{ h.name }}</span>
-              <span class="hol-item-meta">{{ h.date|date:"D · M d" }} · {{ h.type_label }}</span>
+              <span class="hol-item-meta">{{ h.date|date:"D · M d" }} · {{ h.type_label }}{% if h.required_label %} · <b>{{ h.required_label }} attendance required</b>{% endif %}</span>
             </span>
           </button>
           {% empty %}

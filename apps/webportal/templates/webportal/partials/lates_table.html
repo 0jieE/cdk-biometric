@@ -1,6 +1,7 @@
 <div class="lost-summary">
   <div class="lost-tile"><div class="lost-num text-late">{{ totals.late }}</div><div class="lost-label">Late (min)</div></div>
   <div class="lost-tile"><div class="lost-num text-half">{{ totals.under }}</div><div class="lost-label">Undertime (min)</div></div>
+  <div class="lost-tile"><div class="lost-num text-absent">{{ totals.absent }}</div><div class="lost-label">Absent (min)</div></div>
   <div class="lost-tile lost-total"><div class="lost-num text-absent">{{ totals.lost }}</div><div class="lost-label">Lost time (min)</div></div>
 </div>
 
@@ -62,11 +63,12 @@
   <!-- Per employee lost time -->
   <div class="tab-pane fade" id="lt-emp" role="tabpanel">
     <div class="table-responsive">
-      <table id="dt-lost-emp" class="table js-dt" data-dt-order='[[6,"desc"]]' style="width:100%">
+      <table id="dt-lost-emp" class="table js-dt" data-dt-order='[[8,"desc"]]' style="width:100%">
         <thead><tr>
           <th>Employee</th><th>Department</th>
           <th>Lates</th><th>Late (min)</th>
           <th>Undertimes</th><th>Undertime (min)</th>
+          <th>Absences</th><th>Absent (min)</th>
           <th>Lost Time</th></tr></thead>
         <tbody>
         {% for p in per_employee %}
@@ -77,6 +79,8 @@
             <td data-order="{{ p.late_minutes }}"><span class="badge-status s-late">{{ p.late_minutes }} min</span></td>
             <td data-order="{{ p.under_count }}">{{ p.under_count }}</td>
             <td data-order="{{ p.under_minutes }}"><span class="badge-status s-half">{{ p.under_minutes }} min</span></td>
+            <td data-order="{{ p.absent_count }}">{{ p.absent_count }}</td>
+            <td data-order="{{ p.absent_minutes }}"><span class="badge-status s-absent">{{ p.absent_minutes }} min</span></td>
             <td data-order="{{ p.lost_minutes }}">
               <span class="badge-status s-absent">{{ p.lost_minutes }} min</span>
               <span class="text-muted small d-block">{{ p.lost_hours }} h</span></td>
@@ -86,6 +90,7 @@
       </table>
     </div>
     <div class="text-muted small mt-2"><i class="bi bi-calculator"></i>
-      Lost time = total minutes late + total minutes undertime, over the selected range.</div>
+      Lost time = minutes late + minutes undertime + minutes absent, over the selected range.
+      A missed session counts its full scheduled length (e.g. AM 8:00–12:00 = 240 min).</div>
   </div>
 </div>

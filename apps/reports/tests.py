@@ -56,6 +56,15 @@ class ReportGeneratorTests(TestCase):
             self.assertTrue(name.endswith('.pdf'))
             self.assertTrue(content.startswith(b'%PDF'))
 
+    def test_totals_rows(self):
+        _, content = build_report('TARDINESS', 'XLSX', self._params())
+        self.assertEqual(xlsx_rows(content)[-1],
+                         ('TOTAL', None, None, None, '1 record(s)', 25))
+        _, content = build_report('ABSENCE', 'XLSX', self._params())
+        rows = xlsx_rows(content)
+        self.assertEqual(rows[0][-1], 'Minutes Absent')
+        self.assertEqual(rows[-1], ('TOTAL', None, None, None, '1 session(s)', None, None, 240))
+
     def test_removed_report_types_are_rejected(self):
         for rt in ('DAILY_ATTENDANCE', 'MONTHLY_SUMMARY', 'EMPLOYEE_ATTENDANCE'):
             with self.assertRaises(ValueError):
@@ -95,20 +104,45 @@ class AttendanceReportTests(TestCase):
 
     def test_fulltime_columns_and_row_match_the_attendance_page(self):
         name, rows = self._report(self.ft)
-        self.assertTrue(name.startswith('attendance_A-1_'), name)
+        self.assertEqual(name, 'Full_Timer_2026-07-06_to_2026-07-12.xlsx')
         self.assertEqual(rows[0], ('Date', 'Employee', 'AM In', 'AM Out', 'PM In', 'PM Out',
                                    'Day Status', 'Late (min)', 'Undertime (min)',
-                                   'Lost (min)', 'OT (min)'))
+                                   'Absent (min)', 'Lost (min)', 'OT (min)'))
+        # Missed PM (13:00-17:00) = 240 absent minutes, on top of the 25 late.
         self.assertEqual(rows[1], ('Jul 06, 2026', 'Full Timer (A-1)',
-                                   '08:30', '12:00', '—', '—', 'HALF DAY', 25, 0, 25, 0))
-        self.assertEqual(len(rows), 2)
+                                   '08:30', '12:00', '—', '—', 'HALF DAY', 25, 0, 240, 265, 0))
+        self.assertEqual(rows[2], ('TOTAL', None, None, None, None, None, '1 day',
+                                   25, 0, 240, 265, 0))
+        self.assertEqual(len(rows), 3)
 
     def test_parttime_columns_and_row(self):
         _, rows = self._report(self.pt)
-        self.assertEqual(rows[0], ('Date', 'Employee', 'In', 'Out', 'Day Status', 'Incomplete'))
+        self.assertEqual(rows[0], ('Date', 'Employee', 'In', 'Out', 'Hours', 'Day Status',
+                                   'Incomplete'))
+        # A lone IN counts 0 hours toward the week; it is not an absence.
         self.assertEqual(rows[1], ('Jul 06, 2026', 'Part Timer (A-2)',
-                                   '08:00', '—', 'ABSENT', 'OUT missing'))
-        self.assertEqual(len(rows), 2)
+                                   '08:00', '—', 0, 'INCOMPLETE', 'OUT missing'))
+        self.assertEqual(rows[2], ('TOTAL', None, None, None, 0, '1 day', '1 incomplete'))
+        self.assertEqual(len(rows), 3)
+
+    def test_pdf_is_a_formal_document_with_totals(self):
+        from pypdf import PdfReader
+
+        _, content = self._report(self.ft, fmt='PDF')
+        # Headings are uppercased by CSS, which doesn't change the extracted
+        # text; cells wrap, so compare with whitespace collapsed.
+        pages = PdfReader(BytesIO(content)).pages
+        text = ' '.join(' '.join(p.extract_text() for p in pages).split()).lower()
+        for expected in ('employee attendance report', 'employee information',
+                         'summary of totals', 'full timer', 'a-1',
+                         'lost time (late + undertime + absent)', '265 min (4.4 h)',
+                         'total', 'i certify on my honor', 'page 1 of 1'):
+            self.assertIn(expected, text)
+        # Named once in the details block, not on every row.
+        self.assertNotIn('full timer (a-1)', text)
+        # Long bond (8.5 x 13 in), portrait.
+        self.assertEqual((float(pages[0].mediabox.width), float(pages[0].mediabox.height)),
+                         (612.0, 936.0))
 
     def test_only_the_chosen_employee_appears(self):
         _, rows = self._report(self.ft)
@@ -120,7 +154,7 @@ class AttendanceReportTests(TestCase):
         AttendanceLog.objects.create(employee=self.ft, log_type='AM_OUT',
                                      log_datetime=aware(date(2026, 7, 7), time(12, 0)))
         _, rows = self._report(self.ft)
-        self.assertEqual([r[0] for r in rows[1:]], ['Jul 07, 2026', 'Jul 06, 2026'])
+        self.assertEqual([r[0] for r in rows[1:]], ['Jul 07, 2026', 'Jul 06, 2026', 'TOTAL'])
 
     def test_inactive_employee_can_still_be_reported(self):
         Employee.objects.filter(pk=self.ft.pk).update(is_active=False)

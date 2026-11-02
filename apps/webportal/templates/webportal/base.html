@@ -79,16 +79,16 @@
         </header>
 
         <main class="content">
-          {% if messages %}
-            {% for m in messages %}
-              <div class="alert alert-{{ m.tags }} alert-dismissible fade show py-2 rounded-3">{{ m }}
-                <button class="btn-close" data-bs-dismiss="alert"></button></div>
-            {% endfor %}
-          {% endif %}
           {% block content %}{% endblock %}
         </main>
       </div>
     </div>
+  </div>
+
+  <!-- Pop-up notifications. Page-load messages render here; htmx results are
+       appended (hx-swap="beforeend") or arrive as a "toast" event (portal.js). -->
+  <div id="toasts" class="toast-stack" aria-live="polite">
+    {% for m in messages %}{% include 'webportal/partials/toast.html' with level=m.level_tag text=m %}{% endfor %}
   </div>
 
   <div class="modal fade" id="appModal" tabindex="-1">

@@ -45,6 +45,32 @@
     </div>
     <div class="card-pad">
       <div class="mini-grid">
+        {% if not employee.is_fulltime %}
+        <div class="mini-stat">
+          <div class="mini-num">{{ pt_this_week_worked }}<span class="fs-6"> / {{ pt_this_week_required }}</span></div>
+          <div class="mini-label">This week
+            {% if pt_this_week.status == 'MET' %}<span class="badge-status s-present ms-1">Met</span>
+            {% elif pt_this_week %}<span class="text-muted">· {{ pt_this_week.days_worked }}/{{ pt_this_week.required_days }} days</span>{% endif %}</div>
+          <div class="mini-bar"><span class="{% if pt_this_week.status == 'MET' %}ok{% endif %}" style="width:{{ pt_this_week_pct }}%"></span></div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-num">{{ pt_met_rate }}%</div>
+          <div class="mini-label">Weeks met ({{ pt_weeks_met }} of {{ pt_weeks_done }})</div>
+          <div class="mini-bar"><span class="ok" style="width:{{ pt_met_rate }}%"></span></div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-num text-ok">{{ present_days }}</div>
+          <div class="mini-label">Days worked</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-num">{{ worked_hours }}<span class="fs-6"> h</span></div>
+          <div class="mini-label">Hours rendered</div>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-num text-half">{{ incomplete_days }}</div>
+          <div class="mini-label">Incomplete days (0 h)</div>
+        </div>
+        {% else %}
         <div class="mini-stat">
           <div class="mini-num">{{ attendance_rate }}%</div>
           <div class="mini-label">Attendance rate</div>
@@ -67,19 +93,13 @@
           <div class="mini-num text-absent">{{ absent_days }}</div>
           <div class="mini-label">Absent days</div>
         </div>
-        {% if employee.is_fulltime %}
         <div class="mini-stat">
           <div class="mini-num text-ot">{{ ot_hours }}<span class="fs-6"> h</span></div>
           <div class="mini-label">Overtime</div>
         </div>
         <div class="mini-stat">
           <div class="mini-num text-absent">{{ lost_minutes }}<span class="fs-6"> m</span></div>
-          <div class="mini-label">Lost time ({{ late_minutes }} late + {{ undertime_minutes }} undertime)</div>
-        </div>
-        {% else %}
-        <div class="mini-stat">
-          <div class="mini-num">{{ half_days }}</div>
-          <div class="mini-label">Half / incomplete</div>
+          <div class="mini-label">Lost time ({{ late_minutes }} late + {{ undertime_minutes }} undertime + {{ absent_minutes }} absent)</div>
         </div>
         {% endif %}
       </div>
@@ -103,42 +123,13 @@
       </div>
     </div></div>
 
-    <div class="card"><div class="card-head">
-      <span><i class="bi bi-clock-history me-1"></i> Recent activity</span>
-    </div>
-    <div class="table-responsive">
-      <table class="table mb-0" style="width:100%">
-        <thead><tr>
-          <th>Date</th>
-          {% if employee.is_fulltime %}<th>AM In</th><th>AM Out</th><th>PM In</th><th>PM Out</th>{% else %}<th>In</th><th>Out</th>{% endif %}
-          <th>Status</th>
-        </tr></thead>
-        <tbody>
-          {% for r in recent %}
-          <tr>
-            <td class="text-nowrap">{{ r.date|date:"D, M d" }}</td>
-            {% if employee.is_fulltime %}
-              <td>{{ r.am.in|time:"H:i"|default:"—" }}</td>
-              <td>{{ r.am.out|time:"H:i"|default:"—" }}</td>
-              <td>{{ r.pm.in|time:"H:i"|default:"—" }}</td>
-              <td>{{ r.pm.out|time:"H:i"|default:"—" }}</td>
-            {% else %}
-              <td>{{ r.in|time:"H:i"|default:"—" }}</td>
-              <td>{{ r.out|time:"H:i"|default:"—" }}</td>
-            {% endif %}
-            <td>
-              {% if r.day_status == 'PRESENT' %}<span class="badge-status s-present">Present</span>
-              {% elif r.day_status == 'LATE' %}<span class="badge-status s-late">Late</span>
-              {% elif r.day_status == 'HALF_DAY' %}<span class="badge-status s-half">Half day</span>
-              {% elif r.day_status == 'PENDING' %}<span class="badge-status s-neutral">In progress</span>
-              {% else %}<span class="badge-status s-absent">Absent</span>{% endif %}
-            </td>
-          </tr>
-          {% empty %}
-          <tr><td colspan="9" class="text-center text-muted py-4">No recent attendance records.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div></div>
   </div>
+</div>
+
+<!-- Day-by-day records: loaded separately so changing the range re-renders only this. -->
+<div id="emp-records" class="mt-3"
+     hx-get="{% url 'webportal:employee_records' employee.id %}" hx-trigger="load"
+     hx-target="this" hx-swap="innerHTML">
+  <div class="card"><div class="card-pad text-muted">
+    <span class="spinner-border spinner-border-sm me-1"></span> Loading attendance records…</div></div>
 </div>

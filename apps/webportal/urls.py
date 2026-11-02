@@ -13,11 +13,13 @@ urlpatterns = [
     path('dashboard/', views.dashboard, name='dashboard'),
     path('dashboard/recent/', views.dashboard_recent, name='dashboard_recent'),
     path('dashboard/active-employees/', views.dashboard_active_employees, name='dashboard_active_employees'),
+    path('dashboard/device-status/', views.dashboard_device_status, name='dashboard_device_status'),
     path('sync-now/', views.sync_now, name='sync_now'),
 
     # Attendance / tardiness / absences
     path('attendance/', views.attendance, name='attendance'),
     path('attendance/data/', views.attendance_data, name='attendance_data'),
+    path('attendance/weekly/', views.attendance_weekly, name='attendance_weekly'),
     path('lates/', views.lates, name='lates'),
     path('absences/', views.absences, name='absences'),
 
@@ -26,6 +28,7 @@ urlpatterns = [
     path('employees/new/', views.employee_form, name='employee_create'),
     path('employees/<int:pk>/', views.employee_detail, name='employee_detail'),
     path('employees/<int:pk>/edit/', views.employee_form, name='employee_edit'),
+    path('employees/<int:pk>/records/', views.employee_records, name='employee_records'),
     path('employees/<int:pk>/account/', views.employee_account, name='employee_account'),
     path('employees/<int:pk>/deactivate/', views.employee_deactivate, name='employee_deactivate'),
     path('employees/<int:pk>/reactivate/', views.employee_reactivate, name='employee_reactivate'),
@@ -50,6 +53,7 @@ urlpatterns = [
     path('devices/<int:pk>/edit/', views.device_form, name='device_edit'),
     path('devices/<int:pk>/sync/', views.device_sync, name='device_sync'),
     path('devices/<int:pk>/test/', views.device_test, name='device_test'),
+    path('devices/<int:pk>/status/', views.device_status, name='device_status'),
 
     # Reports
     path('reports/', views.reports, name='reports'),
@@ -61,6 +65,11 @@ urlpatterns = [
     path('schedule/list/', views.employee_schedule_list, name='employee_schedule_list'),
     path('schedule/employee/<int:pk>/', views.employee_schedule_form, name='employee_schedule'),
     path('schedule/employee/<int:pk>/clear/', views.employee_schedule_clear, name='employee_schedule_clear'),
+    path('schedule/parttime/', views.schedule_parttime_default, name='schedule_parttime_default'),
+    path('schedule/employee/<int:pk>/hours/', views.employee_weekly_hours_form,
+         name='employee_weekly_hours'),
+    path('schedule/employee/<int:pk>/hours/clear/', views.employee_weekly_hours_clear,
+         name='employee_weekly_hours_clear'),
 
     # Overtime authorization
     path('overtime/', views.overtime, name='overtime'),

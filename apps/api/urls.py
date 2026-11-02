@@ -6,6 +6,7 @@ from .auth import RevokeAwareTokenRefreshView
 from .views import (
     AttendanceListView,
     AttendanceSummaryView,
+    AttendanceWeeklyView,
     ChangePasswordView,
     ChangeUsernameView,
     DeviceRegisterView,
@@ -13,6 +14,7 @@ from .views import (
     MePhotoView,
     MeView,
     NotificationListView,
+    NotificationReadView,
 )
 
 app_name = 'api'
@@ -32,6 +34,9 @@ urlpatterns = [
     path('me/username/', ChangeUsernameView.as_view(), name='me-username'),
     path('attendance/', AttendanceListView.as_view(), name='attendance'),
     path('attendance/summary/', AttendanceSummaryView.as_view(), name='attendance-summary'),
+    path('attendance/weekly/', AttendanceWeeklyView.as_view(), name='attendance-weekly'),
     path('notifications/', NotificationListView.as_view(), name='notifications'),
+    path('notifications/<int:pk>/read/', NotificationReadView.as_view(),
+         name='notification-read'),
     path('devices/register/', DeviceRegisterView.as_view(), name='device-register'),
 ]

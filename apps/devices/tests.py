@@ -60,3 +60,54 @@ class ZKDeviceClientTests(TestCase):
 
     def test_port_defaults_without_settings(self):
         self.assertEqual(ZKDeviceClient(ip='192.168.1.3').port, 4370)
+
+
+class QuickCheckTests(TestCase):
+    """quick_check() must answer fast - it's what a frequently-polling
+    dashboard badge calls, unlike test_connection()'s full handshake."""
+
+    def test_mock_backend_delegates_to_test_connection(self):
+        self.assertTrue(MockDeviceClient().quick_check())
+
+    def test_reaches_a_real_open_port(self):
+        import socket
+
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind(('127.0.0.1', 0))
+        server.listen(1)
+        try:
+            port = server.getsockname()[1]
+            self.assertTrue(ZKDeviceClient(ip='127.0.0.1', port=port).quick_check(timeout=2))
+        finally:
+            server.close()
+
+    def test_refused_port_is_false_within_the_timeout(self):
+        import socket
+        import time
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(('127.0.0.1', 0))
+        free_port = s.getsockname()[1]
+        s.close()  # nothing listens here now
+
+        # Linux refuses instantly; Windows retries the SYN until the timeout.
+        # Either way the answer is False and never later than `timeout`.
+        start = time.monotonic()
+        ok = ZKDeviceClient(ip='127.0.0.1', port=free_port).quick_check(timeout=0.5)
+        elapsed = time.monotonic() - start
+
+        self.assertFalse(ok)
+        self.assertLess(elapsed, 1.5)
+
+    def test_never_blocks_past_its_own_timeout(self):
+        import time
+
+        # A non-routable address (RFC 5737 TEST-NET) so the connect attempt
+        # actually has to wait, proving quick_check respects `timeout` itself
+        # rather than pyzk's connect()/test_tcp(), which hardcodes 10s.
+        start = time.monotonic()
+        ok = ZKDeviceClient(ip='192.0.2.1', port=4370).quick_check(timeout=1)
+        elapsed = time.monotonic() - start
+
+        self.assertFalse(ok)
+        self.assertLess(elapsed, 3)   # generous margin, still far under the old 10s+

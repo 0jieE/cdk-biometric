@@ -123,7 +123,7 @@
             <div class="top-name">{{ t.employee.full_name }}</div>
             <div class="top-sub">{{ t.employee.department.name }}</div>
             <div class="top-val">{{ t.total }}<span> min</span></div>
-            <div class="top-break">{{ t.late }} late · {{ t.under }} under</div>
+            <div class="top-break">{{ t.late }} late · {{ t.under }} under · {{ t.absent }} absent</div>
           </a>
           {% endfor %}
         </div>
@@ -146,7 +146,7 @@
               <span class="cl-dot" style="background:{{ d.color }}"></span>
               <div class="cl-text">
                 <div class="cl-name">{{ d.name }}</div>
-                <div class="cl-sub">{{ d.total }} min · {{ d.late }} late + {{ d.under }} undertime</div>
+                <div class="cl-sub">{{ d.total }} min · {{ d.late }} late + {{ d.under }} undertime + {{ d.absent }} absent</div>
               </div>
             </div>
             {% endfor %}
@@ -175,13 +175,18 @@
     <div class="card">
       <div class="card-head">
         <span><i class="bi bi-clock-history me-1"></i> Recent Punches</span>
-        <button class="btn btn-soft btn-sm" hx-post="{% url 'webportal:sync_now' %}"
-                hx-target="#syncResult" hx-indicator="#syncSpin" title="Pull latest punches from the device">
-          <i class="bi bi-arrow-repeat"></i> Sync
-          <span id="syncSpin" class="htmx-indicator spinner-border spinner-border-sm"></span>
-        </button>
+        <div class="d-flex align-items-center gap-2">
+          <div id="deviceStatus" hx-get="{% url 'webportal:dashboard_device_status' %}" hx-trigger="load, every 30s">
+            <span class="badge-status s-neutral">Checking device…</span>
+          </div>
+          <button class="btn btn-soft btn-sm" hx-post="{% url 'webportal:sync_now' %}"
+                  hx-target="#toasts" hx-swap="beforeend" hx-indicator="#syncSpin" hx-disabled-elt="this"
+                  title="Pull latest punches from the device">
+            <i class="bi bi-arrow-repeat"></i> Sync
+            <span id="syncSpin" class="htmx-indicator spinner-border spinner-border-sm"></span>
+          </button>
+        </div>
       </div>
-      <div id="syncResult"></div>
       <div id="recentPunches" hx-get="{% url 'webportal:dashboard_recent' %}" hx-trigger="load, every 30s">
         <div class="card-pad text-muted">Loading…</div>
       </div>

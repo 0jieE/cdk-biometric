@@ -121,6 +121,14 @@ class GlobalSchedule(TimeStampedModel):
     midpoint = models.TimeField(default=time(12, 30))
     grace_period_minutes = models.PositiveIntegerField(default=5)
     workdays = models.JSONField(default=default_workdays)
+    # Part-timers are judged per week (Mon-Sun) on hours rendered, not per day.
+    parttime_weekly_hours = models.DecimalField(
+        max_digits=4, decimal_places=1, default=20,
+        help_text='Hours a part-timer must render each week (Mon–Sun).')
+    # ...spread over at least this many days: all the hours in one day don't count.
+    parttime_min_days = models.PositiveSmallIntegerField(
+        default=2,
+        help_text='Different days a part-timer must come in each week (Mon–Sun).')
 
     class Meta:
         verbose_name = 'Global Schedule'
@@ -158,6 +166,9 @@ class EmployeeSchedule(TimeStampedModel):
     midpoint = models.TimeField(null=True, blank=True)
     grace_period_minutes = models.PositiveIntegerField(null=True, blank=True)
     workdays = models.JSONField(null=True, blank=True)
+    weekly_hours = models.DecimalField(
+        max_digits=4, decimal_places=1, null=True, blank=True,
+        help_text="Part-time only: this person's weekly hours requirement.")
 
     def __str__(self) -> str:
         return f'Schedule override for {self.employee.employee_no}'
@@ -174,12 +185,39 @@ class Holiday(TimeStampedModel):
     is_recurring = models.BooleanField(default=False)
     # Hex colour used to tint the day on the calendar.
     color = models.CharField(max_length=7, default='#DC2626')
+    # Special holidays only - an event day. Instead of a free day, full-timers
+    # must complete the ticked session(s); doing so credits the WHOLE day as
+    # present. The usual holiday bridging rule doesn't apply. See
+    # apps.attendance.services.process_day.
+    attendance_required = models.BooleanField(default=False)
+    required_am = models.BooleanField(default=False)
+    required_pm = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['date']
 
     def __str__(self) -> str:
         return f'{self.date} - {self.name}'
+
+    def save(self, *args, **kwargs):
+        # Only a Special holiday can be an event day, and only with a session.
+        if self.type != self.Types.SPECIAL or not self.attendance_required:
+            self.attendance_required = self.required_am = self.required_pm = False
+        elif not (self.required_am or self.required_pm):
+            self.attendance_required = False
+        super().save(*args, **kwargs)
+
+    @property
+    def required_sessions(self) -> tuple:
+        """('AM',), ('PM',), ('AM', 'PM') on an event day; () otherwise."""
+        if not (self.type == self.Types.SPECIAL and self.attendance_required):
+            return ()
+        return tuple(s for s, on in (('AM', self.required_am), ('PM', self.required_pm)) if on)
+
+    @property
+    def required_label(self) -> str:
+        return {('AM',): 'AM', ('PM',): 'PM', ('AM', 'PM'): 'AM & PM'}.get(
+            self.required_sessions, '')
 
 
 class TimeSync(TimeStampedModel):

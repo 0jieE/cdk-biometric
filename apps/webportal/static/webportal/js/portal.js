@@ -257,6 +257,56 @@
     return (el && window.bootstrap) ? bootstrap.Modal.getOrCreateInstance(el) : null;
   }
 
+  /* ----------------------------------------------------------- toasts ----- */
+  // Pop-ups in #toasts: server-rendered (page messages, htmx beforeend swaps)
+  // or built here from the "toast" event the messages middleware sends.
+  var TOAST_MS = 6000;
+  var TOAST_ICONS = { success: 'check-circle-fill', error: 'x-circle-fill',
+                      warning: 'exclamation-triangle-fill', info: 'info-circle-fill' };
+
+  function dismissToast(t) {
+    if (!t || t.classList.contains('leaving')) return;
+    t.classList.add('leaving');
+    setTimeout(function () { t.remove(); }, 250);
+  }
+
+  function armToasts(root) {
+    (root || document).querySelectorAll('.app-toast:not(.armed)').forEach(function (t) {
+      t.classList.add('armed');
+      requestAnimationFrame(function () { t.classList.add('show'); });
+      var timer = setTimeout(function () { dismissToast(t); }, TOAST_MS);
+      // Hovering keeps it up long enough to read a longer sync summary.
+      t.addEventListener('mouseenter', function () { clearTimeout(timer); });
+      t.addEventListener('mouseleave', function () {
+        timer = setTimeout(function () { dismissToast(t); }, TOAST_MS / 2);
+      });
+    });
+  }
+
+  function showToast(level, text) {
+    var stack = document.getElementById('toasts');
+    if (!stack) return;
+    level = TOAST_ICONS[level] ? level : 'info';
+    var t = document.createElement('div');
+    t.className = 'app-toast toast-' + level;
+    t.setAttribute('role', 'status');
+    t.innerHTML = '<i class="bi bi-' + TOAST_ICONS[level] + ' toast-icon"></i>' +
+      '<div class="toast-body-text"><div></div></div>' +
+      '<button type="button" class="btn-close btn-close-sm" data-toast-close aria-label="Close"></button>';
+    t.querySelector('.toast-body-text div').textContent = text;   // message text is not HTML
+    stack.appendChild(t);
+    armToasts(stack);
+  }
+  window.portalToast = showToast;
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-toast-close]');
+    if (btn) dismissToast(btn.closest('.app-toast'));
+  });
+  document.body.addEventListener('toast', function (e) {
+    ((e.detail && e.detail.items) || []).forEach(function (m) { showToast(m.level, m.text); });
+  });
+
   /* ------------------------------------------------------------ ready ----- */
   function ready(fn) {
     if (document.readyState !== 'loading') fn();
@@ -308,6 +358,7 @@
 
     initTables(document);
     weatherLoad();
+    armToasts(document);
   });
 
   // Server-side tables reload when the top filters change.
@@ -345,6 +396,7 @@
     if (!e.detail.target) return;
     if (e.detail.target.id === 'modalContent') { var m = getModal(); if (m) m.show(); }
     if (e.detail.target.id === 'cal') weatherLoad();  // re-apply on month nav
+    if (e.detail.target.id === 'toasts') armToasts(e.detail.target);
     initTables(e.detail.target);
   });
   document.body.addEventListener('closeModal', function () { var m = getModal(); if (m) m.hide(); });

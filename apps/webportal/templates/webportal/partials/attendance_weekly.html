@@ -1,0 +1,32 @@
+{% if rows %}
+<div class="table-responsive">
+  <table class="table mb-0" style="width:100%">
+    <thead><tr>
+      <th>Week</th>{% if not hide_employee %}<th>Employee</th>{% endif %}<th>Days</th><th>Rendered</th><th>Required</th>
+      <th style="min-width:140px">Progress</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td class="text-nowrap">{{ r.week_start|date:"M d" }} – {{ r.week_end|date:"M d, Y" }}</td>
+        {% if not hide_employee %}
+        <td><a href="{% url 'webportal:employee_detail' r.employee.id %}">{{ r.employee.full_name }}</a>
+          <span class="text-muted small">({{ r.employee.employee_no }})</span></td>
+        {% endif %}
+        <td class="text-nowrap">{{ r.days_worked }} <span class="text-muted small">/ {{ r.required_days }}</span></td>
+        <td class="fw-semibold">{{ r.worked }}</td>
+        <td>{{ r.required }}</td>
+        <td><div class="mini-bar"><span class="{% if r.status == 'MET' %}ok{% endif %}" style="width:{{ r.pct }}%"></span></div>
+          <span class="text-muted small">{{ r.pct }}%</span></td>
+        <td>
+          {% if r.status == 'MET' %}<span class="badge-status s-present"><i class="bi bi-check-lg"></i> Met</span>
+          {% elif r.status == 'IN_PROGRESS' %}<span class="badge-status s-neutral">In progress · {{ r.gap }} to go</span>
+          {% else %}<span class="badge-status s-absent">Short by {{ r.gap }}</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-muted small">No part-time weeks in this range.</div>
+{% endif %}

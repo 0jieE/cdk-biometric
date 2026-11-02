@@ -12,11 +12,12 @@ from django.core.paginator import Paginator
 from django.db import models
 from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 logger = logging.getLogger('apps.webportal')
 
-from apps.api.selectors import build_daily_attendance, monthly_summary
+from apps.api.selectors import build_daily_attendance, monthly_summary, weekly_hours
 from apps.attendance.models import (
     Absence,
     AttendanceLog,
@@ -46,10 +47,12 @@ from .forms import (
     DeviceForm,
     EmployeeForm,
     EmployeeScheduleForm,
+    EmployeeWeeklyHoursForm,
     GlobalScheduleForm,
     HolidayForm,
     ManualAttendanceForm,
     OTAuthorizationForm,
+    ParttimeDefaultHoursForm,
     ReportForm,
 )
 from .utils import admin_required, is_htmx
@@ -162,6 +165,26 @@ def dashboard_active_employees(request):
                   {'employees': employees})
 
 
+def _device_online(device):
+    """Is this device reachable right now? quick_check(), not test_connection():
+    the status badges poll every 30s, so this needs a real short timeout, not
+    the full protocol handshake (see ZKDeviceClient.quick_check for why
+    test_connection() alone can't be trusted to return quickly)."""
+    try:
+        return get_device_client(
+            ip=device.ip_address, port=device.port).quick_check(timeout=2)
+    except Exception:
+        return False
+
+
+@admin_required
+def dashboard_device_status(request):
+    device = BiometricDevice.objects.filter(is_active=True).first()
+    online = device is not None and _device_online(device)
+    return render(request, 'webportal/partials/dashboard_device_status.html',
+                  {'device': device, 'online': online})
+
+
 @admin_required
 def dashboard_recent(request):
     logs = (
@@ -222,21 +245,80 @@ def attendance(request):
     return render(request, 'webportal/attendance.html', {
         'departments': Department.objects.filter(is_active=True),
         'employees': Employee.objects.filter(is_active=True),
-        'statuses': ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT'],
+        'statuses': ['PRESENT', 'LATE', 'HALF_DAY', 'ABSENT', 'INCOMPLETE'],
         'filters': _attendance_filters(request),
     })
+
+
+@admin_required
+def attendance_weekly(request):
+    """Part-time tab: each part-timer's weeks in the filtered range, hours
+    rendered vs. their weekly requirement."""
+    f = _attendance_filters(request)
+    employees = Employee.objects.filter(is_active=True, is_fulltime=False).select_related(
+        'department', 'schedule_override').order_by('last_name', 'first_name')
+    if f['department']:
+        employees = employees.filter(department_id=f['department'])
+    if f['employee']:
+        employees = employees.filter(id=f['employee'])
+
+    today = trusted_localdate()
+    rows = [row for emp in employees
+            for row in _weekly_rows(emp, f['start'], f['end'], today)]
+    rows.sort(key=lambda r: (r['week_start'], r['employee'].last_name), reverse=True)
+    return render(request, 'webportal/partials/attendance_weekly.html', {'rows': rows})
+
+
+def _weekly_rows(employee, start, end, today):
+    """weekly_hours() weeks, formatted for attendance_weekly.html."""
+    rows = []
+    for w in weekly_hours(employee, start, end, today=today):
+        pct = min(100, round(w['worked_minutes'] / w['required_minutes'] * 100)) \
+            if w['required_minutes'] else 100
+        rows.append({'employee': employee, **w, 'pct': pct,
+                     'worked': _hm(w['worked_minutes']),
+                     'required': _hm(w['required_minutes']),
+                     'remaining': _hm(w['remaining_minutes']),
+                     'gap': _week_gap(w)})
+    return rows
+
+
+def _week_gap(week):
+    """What a part-time week still lacks: '2h 30m', '1 day' or '2h 30m & 1 day'."""
+    parts = []
+    if week['remaining_minutes']:
+        parts.append(_hm(week['remaining_minutes']))
+    if week['remaining_days']:
+        n = week['remaining_days']
+        parts.append(f'{n} day' if n == 1 else f'{n} days')
+    return ' & '.join(parts)
 
 
 def _fmt_t(dt):
     return timezone.localtime(dt).strftime('%H:%M') if dt else '—'
 
 
+def _hm(minutes):
+    """450 -> '7h 30m', 480 -> '8h'."""
+    h, m = divmod(int(minutes), 60)
+    return f'{h}h {m:02d}m' if m else f'{h}h'
+
+
 def _status_badge(status):
     m = {'PRESENT': ('s-present', 'PRESENT'), 'LATE': ('s-late', 'LATE'),
          'HALF_DAY': ('s-half', 'HALF DAY'), 'ABSENT': ('s-absent', 'ABSENT'),
-         'PENDING': ('s-neutral', 'IN PROGRESS')}
+         'INCOMPLETE': ('s-half', 'INCOMPLETE'), 'PENDING': ('s-neutral', 'IN PROGRESS')}
     cls, label = m.get(status, ('s-neutral', status))
     return f'<span class="badge-status {cls}">{label}</span>'
+
+
+def _event_note(r):
+    """Event-day credit (special holiday, attendance required) beside the status."""
+    from django.utils.html import escape
+    if not r.get('event'):
+        return ''
+    return (f' <i class="bi bi-calendar-event text-muted" '
+            f'title="Whole day credited: {escape(r["event"])}"></i>')
 
 
 def _who_cell(emp):
@@ -247,8 +329,8 @@ def _fulltime_cells(r):
     am, pm = r['am'], r['pm']
     return [r['date'].strftime('%b %d, %Y'), _who_cell(r['employee']),
             _fmt_t(am['in']), _fmt_t(am['out']), _fmt_t(pm['in']), _fmt_t(pm['out']),
-            _status_badge(r['day_status']), str(r['late_minutes']),
-            str(r['undertime_minutes']), str(r['lost_minutes']),
+            _status_badge(r['day_status']) + _event_note(r), str(r['late_minutes']),
+            str(r['undertime_minutes']), str(r['absent_minutes']), str(r['lost_minutes']),
             str(r['overtime_minutes'])]
 
 
@@ -256,7 +338,8 @@ def _parttime_cells(r):
     incomplete = (f'<span class="badge-status s-absent">{r["missing"]} missing</span>'
                   if r.get('incomplete') else '—')
     return [r['date'].strftime('%b %d, %Y'), _who_cell(r['employee']),
-            _fmt_t(r['in']), _fmt_t(r['out']), _status_badge(r['day_status']), incomplete]
+            _fmt_t(r['in']), _fmt_t(r['out']), _hm(r['worked_minutes']),
+            _status_badge(r['day_status']), incomplete]
 
 
 @admin_required
@@ -304,10 +387,12 @@ _EMP_FIELDS = ('employee', 'employee__first_name', 'employee__last_name',
                'employee__employee_no', 'employee__department__name')
 
 
-def _lost_time_by_employee(late_qs, under_qs):
-    """Merge per-employee lateness + undertime into one lost-time table.
+def _lost_time_by_employee(late_qs, under_qs, absence_qs):
+    """Merge per-employee lateness, undertime and absences into one lost-time
+    table.
 
-    lost time = total minutes late + total minutes undertime.
+    lost time = minutes late + minutes undertime + minutes absent (each missed
+    session's scheduled length).
     """
     agg = {}
 
@@ -318,6 +403,7 @@ def _lost_time_by_employee(late_qs, under_qs):
             'dept': row['employee__department__name'],
             'late_count': 0, 'late_minutes': 0,
             'under_count': 0, 'under_minutes': 0,
+            'absent_count': 0, 'absent_minutes': 0,
         })
 
     # NB: .order_by() clears the querysets' explicit '-date' ordering. Django adds
@@ -333,29 +419,40 @@ def _lost_time_by_employee(late_qs, under_qs):
         b = bucket(row)
         b['under_count'], b['under_minutes'] = row['c'], row['m'] or 0
 
+    for row in (absence_qs.order_by().values(*_EMP_FIELDS)
+                .annotate(c=models.Count('id'), m=models.Sum('minutes_absent'))):
+        b = bucket(row)
+        b['absent_count'], b['absent_minutes'] = row['c'], row['m'] or 0
+
     rows = list(agg.values())
     for b in rows:
-        b['lost_minutes'] = b['late_minutes'] + b['under_minutes']
+        b['lost_minutes'] = b['late_minutes'] + b['under_minutes'] + b['absent_minutes']
         b['lost_hours'] = round(b['lost_minutes'] / 60, 1)
     rows.sort(key=lambda b: -b['lost_minutes'])
     return rows
 
 
+def _minutes_by(model, field, key, start, end):
+    """{key value: summed ``field``} for ``model`` rows dated in [start, end]."""
+    # .order_by() keeps the GROUP BY to ``key`` alone (see _lost_time_by_employee).
+    return {r[key]: r['m'] or 0 for r in
+            model.objects.filter(date__gte=start, date__lte=end).order_by()
+            .values(key).annotate(m=models.Sum(field))}
+
+
 def _lost_time_by_department(start, end):
-    """Lost time (late + undertime) summed per department, for the bar chart."""
-    # .order_by() keeps the GROUP BY to the department alone (see _lost_time_by_employee).
-    late = {r['employee__department']: r['m'] or 0 for r in
-            Lates.objects.filter(date__gte=start, date__lte=end).order_by()
-            .values('employee__department').annotate(m=models.Sum('minutes_late'))}
-    under = {r['employee__department']: r['m'] or 0 for r in
-             Undertime.objects.filter(date__gte=start, date__lte=end).order_by()
-             .values('employee__department').annotate(m=models.Sum('minutes_undertime'))}
+    """Lost time (late + undertime + absent) summed per department, for the bar
+    chart."""
+    key = 'employee__department'
+    late = _minutes_by(Lates, 'minutes_late', key, start, end)
+    under = _minutes_by(Undertime, 'minutes_undertime', key, start, end)
+    absent = _minutes_by(Absence, 'minutes_absent', key, start, end)
 
     rows = []
     for d in Department.objects.filter(is_active=True).order_by('name'):
-        lm, um = late.get(d.id, 0), under.get(d.id, 0)
+        lm, um, am = late.get(d.id, 0), under.get(d.id, 0), absent.get(d.id, 0)
         rows.append({'name': d.name, 'code': d.code, 'color': d.avatar_color,
-                     'late': lm, 'under': um, 'total': lm + um})
+                     'late': lm, 'under': um, 'absent': am, 'total': lm + um + am})
     rows.sort(key=lambda r: -r['total'])
     peak = max([r['total'] for r in rows], default=0)
     for r in rows:
@@ -365,18 +462,16 @@ def _lost_time_by_department(start, end):
 
 def _top_lost_employees(start, end, limit=5):
     """The ``limit`` employees with the most lost time in the range."""
-    late = {r['employee']: r['m'] or 0 for r in
-            Lates.objects.filter(date__gte=start, date__lte=end).order_by()
-            .values('employee').annotate(m=models.Sum('minutes_late'))}
-    under = {r['employee']: r['m'] or 0 for r in
-             Undertime.objects.filter(date__gte=start, date__lte=end).order_by()
-             .values('employee').annotate(m=models.Sum('minutes_undertime'))}
+    late = _minutes_by(Lates, 'minutes_late', 'employee', start, end)
+    under = _minutes_by(Undertime, 'minutes_undertime', 'employee', start, end)
+    absent = _minutes_by(Absence, 'minutes_absent', 'employee', start, end)
 
     emps = {e.id: e for e in Employee.objects.filter(
-        id__in=set(late) | set(under)).select_related('department')}
+        id__in=set(late) | set(under) | set(absent)).select_related('department')}
     rows = [{'employee': e,
              'late': late.get(eid, 0), 'under': under.get(eid, 0),
-             'total': late.get(eid, 0) + under.get(eid, 0)}
+             'absent': absent.get(eid, 0),
+             'total': late.get(eid, 0) + under.get(eid, 0) + absent.get(eid, 0)}
             for eid, e in emps.items()]
     rows.sort(key=lambda r: -r['total'])
     rows = rows[:limit]
@@ -398,16 +493,19 @@ def lates(request):
         date__gte=start, date__lte=end).order_by('-date')
     under_qs = Undertime.objects.select_related('employee', 'employee__department').filter(
         date__gte=start, date__lte=end).order_by('-date')
+    absence_qs = Absence.objects.filter(date__gte=start, date__lte=end)
     if dept_id:
         late_qs = late_qs.filter(employee__department_id=dept_id)
         under_qs = under_qs.filter(employee__department_id=dept_id)
+        absence_qs = absence_qs.filter(employee__department_id=dept_id)
 
-    per_employee = _lost_time_by_employee(late_qs, under_qs)
+    per_employee = _lost_time_by_employee(late_qs, under_qs, absence_qs)
     totals = {
         'late': sum(b['late_minutes'] for b in per_employee),
         'under': sum(b['under_minutes'] for b in per_employee),
+        'absent': sum(b['absent_minutes'] for b in per_employee),
     }
-    totals['lost'] = totals['late'] + totals['under']
+    totals['lost'] = totals['late'] + totals['under'] + totals['absent']
 
     context = {
         'rows': late_qs,
@@ -469,9 +567,14 @@ def employee_form(request, pk=None):
         form = EmployeeForm(request.POST, request.FILES, instance=instance)
         if form.is_valid():
             employee = form.save()
+            messages.success(request, 'Employee saved.')
             if instance is None:
                 _provision_employee_account(employee)
-            messages.success(request, 'Employee saved.')
+                # Step 2, in the same modal: their schedule (full-time) or
+                # weekly hours (part-time), skippable to keep the defaults.
+                resp = _schedule_setup_form(request, employee, onboarding=True)
+                resp['HX-Trigger'] = 'refreshList'
+                return resp
             # Editing from the profile page should refresh that page, not a list.
             return _trigger('refreshList', 'refreshProfile', 'closeModal')
         return render(request, 'webportal/partials/employee_form.html',
@@ -553,7 +656,7 @@ def _employee_performance(employee):
     """Assemble the analytics shown on the profile page.
 
     A 30-day window drives the headline rates; a 6-month series drives the trend
-    bars; the last two weeks feed the recent-activity list.
+    bars. The day-by-day records load separately (employee_records).
     """
     today = trusted_localdate()
     window_start = today - timedelta(days=29)
@@ -569,7 +672,8 @@ def _employee_performance(employee):
     ot_minutes = sum(r.get('overtime_minutes', 0) for r in records)
     late_minutes = sum(r.get('late_minutes', 0) for r in records)
     undertime_minutes = sum(r.get('undertime_minutes', 0) for r in records)
-    lost_minutes = late_minutes + undertime_minutes
+    absent_minutes = sum(r.get('absent_minutes', 0) for r in records)
+    lost_minutes = late_minutes + undertime_minutes + absent_minutes
 
     attendance_rate = round(attended / counted * 100) if counted else 0
     punctuality_rate = round(present / (present + late) * 100) if (present + late) else 100
@@ -577,15 +681,32 @@ def _employee_performance(employee):
     trend = []
     for (y, m) in _month_sequence(today, 6):
         s = monthly_summary(employee, y, m)
-        c = s['present'] + s['late'] + s['half_day'] + s['absent']
+        c = s['present'] + s['late'] + s['half_day'] + s['absent'] + s['incomplete']
         rate = round((s['present'] + s['late'] + s['half_day']) / c * 100) if c else 0
         label = datetime(y, m, 1).strftime('%b')
         trend.append({'label': label, 'rate': rate, 'summary': s})
 
-    recent = list(reversed(build_daily_attendance(
-        employee, today - timedelta(days=13), today)))[:12]
+    parttime = {}
+    if not employee.is_fulltime:
+        weeks = weekly_hours(employee, window_start, today, today=today)
+        done = [w for w in weeks if w['status'] != 'IN_PROGRESS']
+        met = sum(1 for w in done if w['status'] == 'MET')
+        this_week = weeks[-1] if weeks else None
+        parttime = {
+            'pt_weeks_met': met, 'pt_weeks_done': len(done),
+            'pt_met_rate': round(met / len(done) * 100) if done else 100,
+            'pt_this_week': this_week,
+            'pt_this_week_worked': _hm(this_week['worked_minutes']) if this_week else '0h',
+            'pt_this_week_required': _hm(this_week['required_minutes']) if this_week else '',
+            'pt_this_week_pct': (min(100, round(this_week['worked_minutes']
+                                               / this_week['required_minutes'] * 100))
+                                 if this_week and this_week['required_minutes'] else 0),
+            'incomplete_days': count('INCOMPLETE'),
+            'worked_hours': round(sum(r.get('worked_minutes', 0) for r in records) / 60, 1),
+        }
 
     return {
+        **parttime,
         'window_days': 30,
         'present_days': present, 'late_days': late,
         'half_days': half, 'absent_days': absent,
@@ -596,10 +717,10 @@ def _employee_performance(employee):
         'ot_minutes': ot_minutes,
         'late_minutes': late_minutes,
         'undertime_minutes': undertime_minutes,
+        'absent_minutes': absent_minutes,
         'lost_minutes': lost_minutes,
         'lost_hours': round(lost_minutes / 60, 1),
         'trend': trend,
-        'recent': recent,
     }
 
 
@@ -615,6 +736,46 @@ def employee_detail(request, pk):
     template = 'webportal/partials/employee_profile_body.html' if is_htmx(request) \
         else 'webportal/employee_detail.html'
     return render(request, template, context)
+
+
+_RECORD_STATUSES = [('PRESENT', 'Present'), ('LATE', 'Late'), ('HALF_DAY', 'Half day'),
+                    ('ABSENT', 'Absent'), ('INCOMPLETE', 'Incomplete'),
+                    ('PENDING', 'In progress')]
+_RECORD_TOTALS = ('late_minutes', 'undertime_minutes', 'absent_minutes', 'lost_minutes',
+                  'overtime_minutes', 'worked_minutes')
+
+
+@admin_required
+def employee_records(request, pk):
+    """The profile's day-by-day attendance records for a date range (default: the
+    same 30 days as the analytics), filterable by status, with totals."""
+    employee = get_object_or_404(Employee, pk=pk)
+    today = trusted_localdate()
+    end = _parse_date(request.GET.get('end'), today)
+    start = _parse_date(request.GET.get('start'), end - timedelta(days=29))
+    if start > end:
+        start, end = end, start
+    start = max(start, end - timedelta(days=365))      # keep one page bounded
+    status = request.GET.get('status') or ''
+
+    days = list(reversed(build_daily_attendance(employee, start, end)))
+    counts = {s: 0 for s, _ in _RECORD_STATUSES}
+    for r in days:
+        counts[r['day_status']] = counts.get(r['day_status'], 0) + 1
+    records = [r for r in days if r['day_status'] == status] if status else days
+    for r in records:
+        r['worked'] = _hm(r.get('worked_minutes', 0))
+    totals = {k: sum(r.get(k, 0) for r in records) for k in _RECORD_TOTALS}
+    totals['worked'] = _hm(totals['worked_minutes'])
+
+    return render(request, 'webportal/partials/employee_records.html', {
+        'employee': employee, 'records': records, 'totals': totals,
+        'start': start, 'end': end, 'status': status,
+        'statuses': _RECORD_STATUSES,
+        'status_counts': [(s, label, counts[s]) for s, label in _RECORD_STATUSES if counts[s]],
+        'weeks': ([] if employee.is_fulltime
+                  else list(reversed(_weekly_rows(employee, start, end, today)))),
+    })
 
 
 @admin_required
@@ -760,6 +921,7 @@ def holidays(request):
                     'id': h.pk, 'date': c['date'], 'day': c['date'].day,
                     'name': h.name, 'color': h.color,
                     'type_label': h.get_type_display(),
+                    'required_label': h.required_label,
                 })
     month_holidays.sort(key=lambda x: x['day'])
 
@@ -783,13 +945,28 @@ def holidays(request):
     return render(request, template, context)
 
 
+def _reprocess_dates(*dates):
+    """Re-run process_day for everyone on these dates, so a holiday added,
+    changed or removed is reflected in the stored Absence/Lates rows straight
+    away. Future dates are skipped - nothing is judged before it happens."""
+    today = trusted_localdate()
+    targets = sorted({d for d in dates if d and d <= today})
+    if not targets:
+        return
+    for emp in Employee.objects.filter(is_active=True).select_related('schedule_override'):
+        for d in targets:
+            process_day(emp, d)
+
+
 @admin_required
 def holiday_form(request, pk=None):
     instance = get_object_or_404(Holiday, pk=pk) if pk else None
     if request.method == 'POST':
+        old_date = instance.date if instance else None
         form = HolidayForm(request.POST, instance=instance)
         if form.is_valid():
-            form.save()
+            holiday = form.save()
+            _reprocess_dates(old_date, holiday.date)
             messages.success(request, 'Holiday saved.')
             return _trigger('refreshList', 'closeModal')
         return render(request, 'webportal/partials/holiday_form.html',
@@ -807,7 +984,10 @@ def holiday_form(request, pk=None):
 
 @admin_required
 def holiday_delete(request, pk):
-    get_object_or_404(Holiday, pk=pk).delete()
+    holiday = get_object_or_404(Holiday, pk=pk)
+    day = holiday.date
+    holiday.delete()
+    _reprocess_dates(day)
     messages.success(request, 'Holiday removed.')
     return _trigger('refreshList', 'closeModal')
 
@@ -884,8 +1064,20 @@ def device_form(request, pk=None):
 def device_sync(request, pk):
     device = get_object_or_404(BiometricDevice, pk=pk)
     result = sync_attendance_task.apply().get()
-    return render(request, 'webportal/partials/sync_result.html',
+    resp = render(request, 'webportal/partials/sync_result.html',
                   {'result': result, 'device': device})
+    resp['HX-Trigger'] = 'refreshList'           # the card's "Last synced" moved
+    return resp
+
+
+@admin_required
+def device_status(request, pk):
+    """One card's Connection row. Each card loads (and re-polls) its own, so an
+    offline device's timeout never holds up the list or the other cards."""
+    device = get_object_or_404(BiometricDevice, pk=pk)
+    return render(request, 'webportal/partials/device_status.html',
+                  {'device': device, 'online': _device_online(device),
+                   'checked_at': timezone.localtime()})
 
 
 @admin_required
@@ -1031,37 +1223,122 @@ def schedule_settings(request):
             form.save()
             messages.success(request, 'Global schedule saved.')
             return redirect('webportal:schedule')
-        return render(request, 'webportal/schedule.html', _schedule_context(form))
-    return render(request, 'webportal/schedule.html', _schedule_context(GlobalScheduleForm(instance=schedule)))
+        return render(request, 'webportal/schedule.html', _schedule_context(global_form=form))
+    return render(request, 'webportal/schedule.html', _schedule_context())
 
 
-def _schedule_context(global_form):
-    return {'global_form': global_form, 'global_schedule': GlobalSchedule.load()}
+@admin_required
+def schedule_parttime_default(request):
+    """Save the part-time default weekly hours and minimum days (the Part-time
+    tab's form)."""
+    if request.method != 'POST':
+        return redirect(f"{reverse('webportal:schedule')}?tab=parttime")
+    form = ParttimeDefaultHoursForm(request.POST, instance=GlobalSchedule.load())
+    if form.is_valid():
+        form.save()
+        messages.success(request, 'Part-time weekly requirement saved.')
+        return redirect(f"{reverse('webportal:schedule')}?tab=parttime")
+    return render(request, 'webportal/schedule.html',
+                  _schedule_context(parttime_form=form, tab='parttime'))
+
+
+def _schedule_context(global_form=None, parttime_form=None, tab=None):
+    schedule = GlobalSchedule.load()
+    return {'global_form': global_form or GlobalScheduleForm(instance=schedule),
+            'parttime_form': parttime_form or ParttimeDefaultHoursForm(instance=schedule),
+            'global_schedule': schedule, 'tab': tab}
 
 
 @admin_required
 def employee_schedule_list(request):
-    return render(request, 'webportal/partials/schedule_employee_list.html', {
-        'employees': Employee.objects.filter(is_active=True).select_related(
-            'department', 'schedule_override').order_by('employee_no')})
+    # ?type=PART_TIME lists part-timers with their weekly hours; anything
+    # else lists full-timers with their schedule overrides.
+    parttime = request.GET.get('type') == 'PART_TIME'
+    employees = Employee.objects.filter(is_active=True, is_fulltime=not parttime).select_related(
+        'department', 'schedule_override').order_by('employee_no')
+    if parttime:
+        default = GlobalSchedule.load().parttime_weekly_hours
+        for e in employees:
+            own = getattr(getattr(e, 'schedule_override', None), 'weekly_hours', None)
+            e.weekly_hours, e.has_own_hours = (own, True) if own is not None else (default, False)
+        return render(request, 'webportal/partials/schedule_parttime_list.html',
+                      {'employees': employees})
+    return render(request, 'webportal/partials/schedule_employee_list.html',
+                  {'employees': employees})
+
+
+_OVERRIDE_FIELDS = ('am_in', 'am_out', 'pm_in', 'pm_out', 'midpoint',
+                    'grace_period_minutes', 'workdays', 'weekly_hours')
+
+
+def _override_for(employee):
+    """The employee's override row, or an unsaved one. Opening a form must not
+    create a row: an empty override still reads as 'Custom schedule'."""
+    return (EmployeeSchedule.objects.filter(employee=employee).first()
+            or EmployeeSchedule(employee=employee))
+
+
+def _save_override(form):
+    """Save, but drop the row again if every field ended up blank (= inherit)."""
+    override = form.save()
+    if all(getattr(override, f) in (None, '', []) for f in _OVERRIDE_FIELDS):
+        override.delete()
+
+
+def _schedule_setup_form(request, employee, form=None, onboarding=False):
+    """The modal for an employee's schedule: weekly hours for a part-timer,
+    the AM/PM override for a full-timer. ``onboarding`` is the step right after
+    adding them, which offers to skip (= keep the defaults)."""
+    override = _override_for(employee)
+    if employee.is_fulltime:
+        return render(request, 'webportal/partials/employee_schedule_form.html', {
+            'form': form or EmployeeScheduleForm(instance=override), 'employee': employee,
+            'effective': get_effective_schedule(employee), 'onboarding': onboarding,
+            'action_url': reverse('webportal:employee_schedule', args=[employee.id])})
+    return render(request, 'webportal/partials/employee_weekly_hours_form.html', {
+        'form': form or EmployeeWeeklyHoursForm(instance=override), 'employee': employee,
+        'default_hours': GlobalSchedule.load().parttime_weekly_hours, 'onboarding': onboarding,
+        'action_url': reverse('webportal:employee_weekly_hours', args=[employee.id])})
+
+
+def _onboarding(request):
+    """A re-render after a validation error stays on the 'Step 2' framing."""
+    return request.POST.get('onboarding') == '1'
+
+
+@admin_required
+def employee_weekly_hours_form(request, pk):
+    employee = get_object_or_404(Employee, pk=pk, is_fulltime=False)
+    if request.method == 'POST':
+        form = EmployeeWeeklyHoursForm(request.POST, instance=_override_for(employee))
+        if form.is_valid():
+            _save_override(form)
+            messages.success(request, f'Weekly hours saved for {employee.full_name}.')
+            return _trigger('refreshList', 'closeModal')
+        return _schedule_setup_form(request, employee, form, _onboarding(request))
+    return _schedule_setup_form(request, employee)
+
+
+@admin_required
+def employee_weekly_hours_clear(request, pk):
+    """Back to the default hours - only weekly_hours, the rest of any override stays."""
+    employee = get_object_or_404(Employee, pk=pk, is_fulltime=False)
+    EmployeeSchedule.objects.filter(employee=employee).update(weekly_hours=None)
+    messages.success(request, f'{employee.full_name} now follows the default weekly hours.')
+    return _trigger('refreshList')
 
 
 @admin_required
 def employee_schedule_form(request, pk):
     employee = get_object_or_404(Employee, pk=pk)
-    override, _ = EmployeeSchedule.objects.get_or_create(employee=employee)
     if request.method == 'POST':
-        form = EmployeeScheduleForm(request.POST, instance=override)
+        form = EmployeeScheduleForm(request.POST, instance=_override_for(employee))
         if form.is_valid():
-            form.save()
+            _save_override(form)
             messages.success(request, f'Override saved for {employee.full_name}.')
             return _trigger('refreshList', 'closeModal')
-        return render(request, 'webportal/partials/employee_schedule_form.html',
-                      {'form': form, 'employee': employee,
-                       'effective': get_effective_schedule(employee)})
-    return render(request, 'webportal/partials/employee_schedule_form.html',
-                  {'form': EmployeeScheduleForm(instance=override), 'employee': employee,
-                   'effective': get_effective_schedule(employee)})
+        return _schedule_setup_form(request, employee, form, _onboarding(request))
+    return _schedule_setup_form(request, employee)
 
 
 @admin_required

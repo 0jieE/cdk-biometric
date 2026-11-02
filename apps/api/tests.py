@@ -100,7 +100,8 @@ class ApiAttendanceTests(TestCase):
         resp = self._login('bob').get(f'/api/v1/attendance/?start={D}&end={D}')
         rec = resp.data['results'][0]
         self.assertEqual(rec['employee_type'], 'PART_TIME')
-        self.assertEqual(rec['day_status'], 'ABSENT')
+        # One punch only: counts 0 hours toward the week, but isn't an absence.
+        self.assertEqual(rec['day_status'], 'INCOMPLETE')
         self.assertTrue(rec['incomplete'])
         self.assertEqual(rec['missing'], 'OUT')
 
@@ -128,6 +129,23 @@ class ApiAttendanceTests(TestCase):
             '/api/v1/devices/register/',
             {'fcm_token': 'tok-123', 'platform': 'android'}, format='json')
         self.assertEqual(resp.status_code, 201)
+
+    def test_mark_notification_read(self):
+        from apps.notifications.models import Notification
+        mine = Notification.objects.create(employee=self.emp_a, title='Hi')
+        theirs = Notification.objects.create(employee=self.emp_b, title='Yo')
+        client = self._login('alice')
+
+        resp = client.post(f'/api/v1/notifications/{mine.pk}/read/')
+        self.assertEqual(resp.status_code, 200)
+        mine.refresh_from_db()
+        self.assertTrue(mine.is_read)
+        # Idempotent.
+        self.assertEqual(client.post(f'/api/v1/notifications/{mine.pk}/read/').status_code, 200)
+        # Another employee's notification is invisible (404) and untouched.
+        self.assertEqual(client.post(f'/api/v1/notifications/{theirs.pk}/read/').status_code, 404)
+        theirs.refresh_from_db()
+        self.assertFalse(theirs.is_read)
 
     def test_health_public(self):
         self.assertEqual(APIClient().get('/api/v1/health/').status_code, 200)
@@ -208,11 +226,10 @@ class NoPunchInferenceTests(TestCase):
         self.assertEqual(rec['pm']['status'], 'ABSENT')
         self.assertIsNone(rec['am']['in'])
 
-    def test_parttime_workday_without_punches_is_absent_not_incomplete(self):
-        rec = self._get('pat', self.NO_PUNCH_DAY, self.NO_PUNCH_DAY).data['results'][0]
-        self.assertEqual(rec['day_status'], 'ABSENT')
-        self.assertFalse(rec['incomplete'])
-        self.assertIsNone(rec['missing'])
+    def test_parttime_day_without_punches_is_simply_not_listed(self):
+        # Part-timers come in any day; a day they didn't is not an absence.
+        self.assertEqual(
+            self._get('pat', self.NO_PUNCH_DAY, self.NO_PUNCH_DAY).data['results'], [])
 
     def test_days_before_tracking_start_are_not_reported(self):
         for who in ('fay', 'pat'):
@@ -244,3 +261,51 @@ class NoPunchInferenceTests(TestCase):
         client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
         data = client.get('/api/v1/attendance/summary/?month=2026-06').data
         self.assertEqual((data['present'], data['late'], data['absent']), (0, 0, 0))
+
+
+class WeeklyHoursApiTests(TestCase):
+    """GET /api/v1/attendance/weekly/ - a part-timer's weeks vs. their requirement."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()                          # default: 20 h / week
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.pt = Employee.objects.create(employee_no='WK-PT', first_name='Pat', last_name='T',
+                                         department=dept, biometric_id='2101', is_fulltime=False)
+        cls.ft = Employee.objects.create(employee_no='WK-FT', first_name='Fay', last_name='T',
+                                         department=dept, biometric_id='2102', is_fulltime=True)
+        # Weeks before tracking began are left out: start tracking in June.
+        Employee.objects.filter(pk__in=[cls.pt.pk, cls.ft.pk]).update(
+            created_at=aware(date(2026, 6, 1), time(0, 0)))
+        AttendanceLog.objects.create(employee=cls.ft, log_type='AM_IN',
+                                     log_datetime=aware(date(2026, 6, 1), time(8, 0)))
+        # Mon 08:00-12:30 + Tue 09:00-13:00 = 8.5 h of 20.
+        for d, a, b in [(D, time(8, 0), time(12, 30)), (date(2026, 7, 7), time(9, 0), time(13, 0))]:
+            AttendanceLog.objects.create(employee=cls.pt, log_type='IN', log_datetime=aware(d, a))
+            AttendanceLog.objects.create(employee=cls.pt, log_type='OUT', log_datetime=aware(d, b))
+        for emp, name in ((cls.pt, 'pat'), (cls.ft, 'fay')):
+            u = User.objects.create(username=name, role=User.Roles.EMPLOYEE, employee=emp)
+            u.set_password(PASSWORD)
+            u.save()
+
+    def _get(self, username, **params):
+        client = APIClient()
+        token = client.post('/api/v1/auth/login/', {'username': username, 'password': PASSWORD},
+                            format='json').data['access']
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return client.get('/api/v1/attendance/weekly/', params)
+
+    def test_parttime_week_against_the_requirement(self):
+        resp = self._get('pat', start='2026-07-06', end='2026-07-12')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['results'], [{
+            'week_start': date(2026, 7, 6), 'week_end': date(2026, 7, 12),
+            'worked_minutes': 510, 'required_minutes': 1200, 'remaining_minutes': 690,
+            'days_worked': 2, 'required_days': 2, 'remaining_days': 0,
+            'status': 'SHORT'}])
+
+    def test_fulltimers_get_an_empty_list(self):
+        self.assertEqual(self._get('fay').data['results'], [])
+
+    def test_reversed_range_is_rejected(self):
+        self.assertEqual(self._get('pat', start='2026-07-12', end='2026-07-06').status_code, 400)

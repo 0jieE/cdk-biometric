@@ -95,7 +95,139 @@ class PunchAssignmentTests(TestCase):
         self.assertEqual(single, {'IN': aware(WORKDAY, time(8, 0))})
 
 
-class MinutesLateTests(TestCase):
+class DuplicatePunchTests(TestCase):
+    """Pressing twice within 5 minutes is one punch, not an IN and an OUT."""
+
+    def _at(self, h, m, s=0):
+        return aware(WORKDAY, time(h, m, s))
+
+    def test_a_double_tap_seconds_apart_is_just_the_in(self):
+        r = assign_fulltime_punches([self._at(7, 55), self._at(7, 55, 10)], time(12, 30),
+                                    am_out=time(12, 0), pm_out=time(17, 0))
+        self.assertEqual(r, {'AM_IN': self._at(7, 55)})
+
+    def test_four_minutes_59_is_still_a_duplicate(self):
+        r = assign_fulltime_punches([self._at(13, 0), self._at(13, 4, 59)], time(12, 30))
+        self.assertEqual(r, {'PM_IN': self._at(13, 0)})
+
+    def test_exactly_five_minutes_is_a_real_out(self):
+        r = assign_fulltime_punches([self._at(13, 0), self._at(13, 5)], time(12, 30))
+        self.assertEqual(r['PM_OUT'], self._at(13, 5))
+
+    def test_a_double_tap_doesnt_hide_the_real_out(self):
+        r = assign_fulltime_punches([self._at(7, 55), self._at(7, 55, 30), self._at(12, 1)],
+                                    time(12, 30))
+        self.assertEqual((r['AM_IN'], r['AM_OUT']), (self._at(7, 55), self._at(12, 1)))
+
+    def test_parttime_double_tap_is_incomplete_not_zero_hours_present(self):
+        self.assertEqual(assign_parttime_punches([self._at(8, 0), self._at(8, 1)]),
+                         {'IN': self._at(8, 0)})
+
+
+class ForgotAmOutTests(TestCase):
+    """Forgot to time out for the morning: the first punch after 12:30 (midpoint)
+    and before 13:00 (PM IN) is the AM_OUT; the next one starts the PM."""
+
+    def _at(self, h, m, s=0):
+        return aware(WORKDAY, time(h, m, s))
+
+    def _assign(self, *times):
+        return assign_fulltime_punches(list(times), time(12, 30), am_out=time(12, 0),
+                                       pm_out=time(17, 0), pm_in=time(13, 0))
+
+    def test_two_lunch_punches_are_am_out_then_pm_in(self):
+        r = self._assign(self._at(7, 55), self._at(12, 40), self._at(12, 42), self._at(17, 0))
+        self.assertEqual(r, {'AM_IN': self._at(7, 55), 'AM_OUT': self._at(12, 40),
+                             'PM_IN': self._at(12, 42), 'PM_OUT': self._at(17, 0)})
+
+    def test_one_lunch_punch_is_the_am_out(self):
+        r = self._assign(self._at(7, 55), self._at(12, 40))
+        self.assertEqual(r, {'AM_IN': self._at(7, 55), 'AM_OUT': self._at(12, 40)})
+
+    def test_within_a_minute_of_the_am_out_is_a_duplicate(self):
+        r = self._assign(self._at(7, 55), self._at(12, 40), self._at(12, 40, 50))
+        self.assertEqual(r, {'AM_IN': self._at(7, 55), 'AM_OUT': self._at(12, 40)})
+
+    def test_a_minute_later_is_already_the_pm_in(self):
+        r = self._assign(self._at(7, 55), self._at(12, 40), self._at(12, 41))
+        self.assertEqual(r['PM_IN'], self._at(12, 41))
+
+    def test_morning_already_timed_out_keeps_lunch_punch_as_pm_in(self):
+        r = self._assign(self._at(7, 55), self._at(12, 0), self._at(12, 40))
+        self.assertEqual((r['AM_OUT'], r['PM_IN']), (self._at(12, 0), self._at(12, 40)))
+
+    def test_no_morning_at_all_keeps_lunch_punch_as_pm_in(self):
+        r = self._assign(self._at(12, 45), self._at(17, 0))
+        self.assertEqual(r, {'PM_IN': self._at(12, 45), 'PM_OUT': self._at(17, 0)})
+
+    def test_punch_at_one_oclock_is_not_in_the_lunch_window(self):
+        r = self._assign(self._at(7, 55), self._at(13, 0), self._at(17, 0))
+        self.assertNotIn('AM_OUT', r)
+        self.assertEqual(r['PM_IN'], self._at(13, 0))
+
+
+class ForgotAmOutIngestTests(TestCase):
+    """Live (one punch at a time) and sync (all at once) end up the same."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()   # 08:00-12:00 / 13:00-17:00, midpoint 12:30
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.emp = Employee.objects.create(employee_no='FO-1', first_name='Forgot', last_name='Out',
+                                          department=dept, biometric_id='6701', is_fulltime=True)
+
+    def _punch(self, *hms):
+        return [RawPunch(biometric_id='6701', timestamp=aware(WORKDAY, time(*t)), status=0)
+                for t in hms]
+
+    def _types(self):
+        return {timezone.localtime(l.log_datetime).strftime('%H:%M'): l.log_type
+                for l in AttendanceLog.objects.filter(employee=self.emp)}
+
+    EXPECTED = {'07:55': 'AM_IN', '12:40': 'AM_OUT', '12:42': 'PM_IN', '17:00': 'PM_OUT'}
+
+    def test_live_one_punch_at_a_time(self):
+        for t in [(7, 55), (12, 40), (12, 42), (17, 0)]:
+            ingest_punches(self._punch(t), notify=False)
+        self.assertEqual(self._types(), self.EXPECTED)
+        self.assertFalse(Absence.objects.filter(employee=self.emp).exists())   # whole day present
+
+    def test_sync_all_at_once(self):
+        ingest_punches(self._punch((7, 55), (12, 40), (12, 42), (17, 0)), notify=False)
+        self.assertEqual(self._types(), self.EXPECTED)
+
+    def test_morning_in_arriving_late_relabels_the_lunch_punch(self):
+        # The listener missed 07:55, so 12:40 was first stored as PM_IN. The
+        # periodic sync re-reads the last 24h from the device (07:55 included);
+        # 12:40 then becomes the AM_OUT - one row, not a PM_IN and an AM_OUT.
+        for t in [(12, 40), (12, 42), (17, 0)]:
+            ingest_punches(self._punch(t), notify=False)
+        ingest_punches(self._punch((7, 55), (12, 40), (12, 42), (17, 0)), notify=False)
+        self.assertEqual(self._types(), self.EXPECTED)
+        self.assertEqual(AttendanceLog.objects.filter(employee=self.emp).count(), 4)
+
+
+class DuplicatePunchIngestTests(TestCase):
+    """End to end: the second tap arriving later (real-time listener) still
+    doesn't become an OUT, and the session stays open/absent, not present."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.emp = Employee.objects.create(employee_no='DP-1', first_name='Double', last_name='Tap',
+                                          department=dept, biometric_id='6601', is_fulltime=True)
+
+    def test_second_tap_in_a_later_batch_is_ignored(self):
+        ingest_punches([RawPunch(biometric_id='6601', timestamp=aware(WORKDAY, time(7, 55)),
+                                 status=0)], notify=False)
+        ingest_punches([RawPunch(biometric_id='6601', timestamp=aware(WORKDAY, time(7, 55, 20)),
+                                 status=0)], notify=False)
+        self.assertEqual(list(AttendanceLog.objects.filter(employee=self.emp)
+                              .values_list('log_type', flat=True)), ['AM_IN'])
+        # A past day with only the AM_IN: AM is absent (no OUT), not present.
+        self.assertTrue(Absence.objects.filter(employee=self.emp, session='AM').exists())
+
     def test_exact_minutes(self):
         # 08:00 + grace 5 => 08:05 threshold.
         self.assertEqual(minutes_late(time(8, 5), time(8, 0), 5), 0)
@@ -227,12 +359,15 @@ class BackfillCommandTests(_FullTimeBase):
         self.assertEqual(Absence.objects.filter(employee=self.emp).count(), 4)
 
     @override_settings(ATTENDANCE_START_DATE='2026-07-01')
-    def test_skips_holidays(self):
+    def test_holiday_with_no_bridging_attendance_is_also_counted_absent(self):
+        # No punches anywhere nearby, so the holiday's before/after bridging
+        # exemption fails too - it's absent exactly like the surrounding
+        # workday, not silently skipped (see holiday_requires_attendance).
         Holiday.objects.create(date=date(2026, 7, 7), name='Test Holiday')
         self._run(since='2026-07-06', until='2026-07-07')
         self.assertEqual(
-            list(Absence.objects.values_list('date', flat=True).distinct()),
-            [date(2026, 7, 6)])
+            sorted(Absence.objects.values_list('date', flat=True).distinct()),
+            [date(2026, 7, 6), date(2026, 7, 7)])
 
     @override_settings(ATTENDANCE_START_DATE='2026-07-01')
     def test_sends_no_notifications(self):
@@ -372,23 +507,19 @@ class PartTimeTests(TestCase):
         self.assertEqual(result['status'], 'PRESENT')
         self.assertEqual(Absence.objects.count(), 0)
 
-    def test_missing_out_incomplete_absent(self):
+    def test_missing_out_is_incomplete_not_absent(self):
         self._log('IN', time(8, 0))
         result = process_day(self.emp, WORKDAY)
-        self.assertEqual(result['status'], 'ABSENT')
-        ab = Absence.objects.get(employee=self.emp, date=WORKDAY)
-        self.assertTrue(ab.incomplete)
-        self.assertEqual(ab.reason, Absence.Reason.MISSING_OUT)
-        self.assertEqual(ab.session, 'FULL')
+        self.assertEqual(result['status'], 'INCOMPLETE')
+        self.assertFalse(Absence.objects.filter(employee=self.emp).exists())
         # The IN punch is retained.
         self.assertTrue(AttendanceLog.objects.filter(employee=self.emp, log_type='IN').exists())
 
-    def test_no_punch_plain_absent(self):
+    def test_no_punch_is_a_day_off(self):
+        # Part-timers are judged on weekly hours, so a day without punches is no absence.
         result = process_day(self.emp, WORKDAY)
-        self.assertEqual(result['status'], 'ABSENT')
-        ab = Absence.objects.get(employee=self.emp, date=WORKDAY)
-        self.assertFalse(ab.incomplete)
-        self.assertEqual(ab.reason, Absence.Reason.NO_PUNCH)
+        self.assertEqual(result['status'], 'REST')
+        self.assertFalse(Absence.objects.filter(employee=self.emp).exists())
 
     def test_never_late_or_overtime(self):
         self._log('IN', time(11, 0)); self._log('OUT', time(20, 0))  # very late, long day
@@ -574,7 +705,7 @@ class SeedDemoAttendanceTests(TestCase):
             # 2) the Attendance report's rows
             _, att = build_report('ATTENDANCE', 'XLSX', {
                 'employee': emp.id, 'start': '2026-07-01', 'end': '2026-07-31'})
-            att_rows = xlsx_rows(att)[1:]
+            att_rows = [r for r in xlsx_rows(att)[1:] if r[0] != 'TOTAL']
             statuses = [r[6] for r in att_rows]
             self.assertEqual(statuses.count('PRESENT') + statuses.count('LATE'), both, label)
             self.assertEqual(statuses.count('HALF DAY'), half, label)

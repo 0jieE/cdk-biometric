@@ -1,0 +1,29 @@
+<div class="modal-header">
+  <h5 class="modal-title">
+    {% if onboarding %}<span class="text-muted small fw-normal d-block">Step 2 of 2 · {{ employee.full_name }} was added</span>Set up weekly hours
+    {% else %}Weekly hours — {{ employee.full_name }}{% endif %}</h5>
+  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+</div>
+<form hx-post="{{ action_url|default:request.path }}" hx-target="#modalContent" hx-swap="innerHTML">
+  <div class="modal-body">
+    {% csrf_token %}
+    {% if onboarding %}<input type="hidden" name="onboarding" value="1">{% endif %}
+    <p class="text-muted small mb-2">Part-timers can come in any day; each week (Mon–Sun) their
+      hours rendered are checked against this. Leave blank to follow the default
+      ({{ default_hours|floatformat:"-1" }} h / week).</p>
+    <label class="form-label small">{{ form.weekly_hours.label }}</label>
+    <div class="input-group">
+      {{ form.weekly_hours }}
+      <span class="input-group-text">h / week</span>
+    </div>
+    {% if form.weekly_hours.errors %}<div class="text-danger small">{{ form.weekly_hours.errors|striptags }}</div>{% endif %}
+  </div>
+  <div class="modal-footer">
+    {% if onboarding %}
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Skip — use the default</button>
+    {% else %}
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Save hours</button>
+  </div>
+</form>

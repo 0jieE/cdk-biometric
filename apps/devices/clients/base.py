@@ -44,6 +44,13 @@ class BaseDeviceClient(abc.ABC):
     def test_connection(self) -> bool:
         """Return True if the device is reachable."""
 
+    def quick_check(self, timeout: float = 2) -> bool:
+        """A fast, best-effort reachability probe for frequent polling (e.g. a
+        dashboard badge) - 'is anything there', not a full protocol
+        handshake. Defaults to ``test_connection()``; override when that call
+        can't be trusted to respect a short timeout."""
+        return self.test_connection()
+
     def live_capture(self):
         """Yield RawPunch objects the instant they happen (real-time path).
 

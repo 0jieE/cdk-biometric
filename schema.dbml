@@ -94,6 +94,8 @@ Table organization_globalschedule [headercolor: #2563EB] {
   midpoint time [not null, default: '12:30', note: 'AM/PM punch-classification boundary']
   grace_period_minutes integer [not null, default: 5]
   workdays json [not null, note: 'list of weekday ints, default Mon-Fri [0,1,2,3,4]']
+  parttime_weekly_hours decimal(4,1) [not null, default: 20, note: 'hours a part-timer must render each week (Mon-Sun)']
+  parttime_min_days smallint [not null, default: 2, note: 'different days those hours must be spread over']
   created_at timestamp [not null]
   updated_at timestamp [not null]
 
@@ -110,6 +112,7 @@ Table organization_employeeschedule [headercolor: #2563EB] {
   midpoint time
   grace_period_minutes integer
   workdays json
+  weekly_hours decimal(4,1) [note: 'part-time only: own weekly hours']
   created_at timestamp [not null]
   updated_at timestamp [not null]
 
@@ -128,6 +131,9 @@ Table organization_holiday [headercolor: #2563EB] {
   type holiday_type [not null, default: 'REGULAR']
   is_recurring boolean [not null, default: false, note: 'matched by month/day every year if true']
   color varchar(7) [not null, default: '#DC2626', note: 'hex colour on the calendar']
+  attendance_required boolean [not null, default: false, note: 'SPECIAL only: an event day; completing the required session(s) credits the whole day']
+  required_am boolean [not null, default: false]
+  required_pm boolean [not null, default: false]
   created_at timestamp [not null]
   updated_at timestamp [not null]
 }
@@ -277,6 +283,7 @@ Table attendance_absence [headercolor: #D97706] {
   session session [not null, default: 'FULL']
   reason absence_reason [not null, default: 'NO_PUNCH']
   incomplete boolean [not null, default: false, note: 'true = exactly one of IN/OUT punched (part-time)']
+  minutes_absent integer [not null, default: 0, note: 'the missed session\'s scheduled length (AM, PM, or both for FULL); counts toward lost time']
   created_at timestamp [not null]
   updated_at timestamp [not null]
 
