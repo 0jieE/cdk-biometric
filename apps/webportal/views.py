@@ -1536,3 +1536,68 @@ def live_logs_stream(request):
     response['Cache-Control'] = 'no-cache'
     response['X-Accel-Buffering'] = 'no'  # tell nginx not to buffer this response
     return response
+
+
+# ---------------------------------------------------------------------------
+# How it works (help page)
+# ---------------------------------------------------------------------------
+_WEEKDAY_NAMES = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+
+
+def _plus(t, minutes):
+    """time + minutes (same day)."""
+    return (datetime.combine(datetime.min, t) + timedelta(minutes=minutes)).time()
+
+
+@admin_required
+def how_it_works(request):
+    """Plain-language guide to how attendance is recorded and calculated. The
+    numbers come from the live schedule settings, so the examples always match
+    what the system actually does."""
+    from apps.attendance.services import DUPLICATE_PUNCH_WINDOW, LUNCH_DUPLICATE_WINDOW
+
+    g = GlobalSchedule.load()
+
+    def span(start, end):
+        return (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
+
+    am_minutes, pm_minutes = span(g.am_in, g.am_out), span(g.pm_in, g.pm_out)
+    late_by, under_by = 7, 15
+    example = {
+        'arrived': _plus(g.am_in, g.grace_period_minutes + late_by),
+        'late': late_by,
+        'left': _plus(g.pm_out, -under_by),
+        'under': under_by,
+        'day1_lost': late_by + under_by,
+        'pm_absent': pm_minutes,
+        'total': _hm(late_by + under_by + pm_minutes),
+    }
+    # Sample days of scans, as (time, what it becomes, why).
+    scans = [
+        (_plus(g.am_in, -6), 'AM In', 'first scan of the morning'),
+        (_plus(g.am_in, -4), 'ignored', 'pressed again 2 minutes later: a duplicate'),
+        (_plus(g.am_out, 2), 'AM Out', 'last scan before the midpoint'),
+        (_plus(g.pm_in, -3), 'PM In', 'first scan after the midpoint'),
+        (_plus(g.pm_out, 4), 'PM Out', 'last scan of the afternoon'),
+    ]
+    forgot = [
+        (_plus(g.am_in, -2), 'AM In', 'first scan of the morning'),
+        (_plus(g.midpoint, max(1, span(g.midpoint, g.pm_in) // 3)), 'AM Out',
+         'no AM Out yet, so this lunch scan closes the morning'),
+        (_plus(g.pm_in, -4), 'PM In', 'the next scan starts the afternoon'),
+        (_plus(g.pm_out, 1), 'PM Out', 'last scan of the afternoon'),
+    ]
+    weekly = g.parttime_weekly_hours.normalize()
+    return render(request, 'webportal/how_it_works.html', {
+        'g': g, 'scans': scans, 'forgot': forgot,
+        'workdays': ', '.join(_WEEKDAY_NAMES[d] for d in sorted(g.workdays)),
+        'am_hours': _hm(am_minutes), 'pm_hours': _hm(pm_minutes),
+        'am_minutes': am_minutes, 'pm_minutes': pm_minutes,
+        'day_hours': _hm(am_minutes + pm_minutes),
+        'grace_until': _plus(g.am_in, g.grace_period_minutes),
+        'example': example,
+        'weekly_hours': f'{weekly:f}',
+        'sync_minutes': settings.SYNC_INTERVAL_MINUTES,
+        'duplicate_minutes': int(DUPLICATE_PUNCH_WINDOW.total_seconds() // 60),
+        'lunch_minutes': int(LUNCH_DUPLICATE_WINDOW.total_seconds() // 60),
+    })

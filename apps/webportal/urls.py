@@ -76,6 +76,8 @@ urlpatterns = [
     path('overtime/new/', views.overtime_form, name='overtime_create'),
     path('overtime/<int:pk>/revoke/', views.overtime_revoke, name='overtime_revoke'),
 
+    path('how-it-works/', views.how_it_works, name='how_it_works'),
+
     # Manual attendance (brownout fallback)
     path('manual-attendance/', views.manual_attendance, name='manual_attendance'),
 

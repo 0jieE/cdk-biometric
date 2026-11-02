@@ -1,0 +1,334 @@
+{% extends 'webportal/base.html' %}
+{% block title %}How It Works{% endblock %}
+{% block heading %}How It Works{% endblock %}
+{% block content %}
+{% comment %}
+  Plain-language guide to the system. Times, grace, part-time hours etc. come
+  from the live Schedule settings (see views.how_it_works), so the examples
+  always match what the system actually does.
+{% endcomment %}
+<div class="hiw">
+
+  <div class="card mb-3">
+    <div class="card-pad">
+      <p class="mb-3">From a fingerprint scan to a report, every attendance record goes through the
+        same five steps. The sections below explain each rule in plain words, using this
+        institution's current schedule.</p>
+      <ol class="hiw-flow">
+        <li><i class="bi bi-fingerprint"></i><b>Scan</b><span>Employee scans on the device</span></li>
+        <li><i class="bi bi-cloud-arrow-down"></i><b>Record</b><span>The system receives the scan</span></li>
+        <li><i class="bi bi-sort-down"></i><b>Sort</b><span>Each scan becomes an In or Out</span></li>
+        <li><i class="bi bi-calculator"></i><b>Calculate</b><span>Late, undertime, absences, overtime</span></li>
+        <li><i class="bi bi-bar-chart-line"></i><b>Show</b><span>Portal, mobile app, reports</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-3">
+      <nav class="hiw-toc">
+        <div class="hiw-toc-title">On this page</div>
+        <a href="#recording"><i class="bi bi-fingerprint"></i> Recording from the device</a>
+        <a href="#sorting"><i class="bi bi-sort-down"></i> How scans are sorted</a>
+        <a href="#manual"><i class="bi bi-pencil-square"></i> Manual entry</a>
+        <a href="#statuses"><i class="bi bi-tags"></i> Day statuses</a>
+        <a href="#lost-time"><i class="bi bi-hourglass-bottom"></i> Late, undertime &amp; lost time</a>
+        <a href="#overtime"><i class="bi bi-hourglass-split"></i> Overtime</a>
+        <a href="#part-time"><i class="bi bi-person"></i> Part-time employees</a>
+        <a href="#holidays"><i class="bi bi-calendar-event"></i> Holidays</a>
+        <a href="#schedules"><i class="bi bi-clock"></i> Schedules</a>
+        <a href="#notifications"><i class="bi bi-bell"></i> Notifications &amp; reports</a>
+      </nav>
+    </div>
+
+    <div class="col-lg-9">
+
+      <!-- Recording -->
+      <section class="card mb-3 hiw-section" id="recording">
+        <div class="card-head"><span><i class="bi bi-fingerprint me-1"></i> Recording from the device</span></div>
+        <div class="card-pad">
+          <p>Each employee is enrolled on the fingerprint device under a <b>Biometric ID</b>. The same ID is
+            saved on their employee record, and that is how a scan is matched to a person. A scan whose ID
+            doesn't belong to any active employee is ignored.</p>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6"><div class="hiw-box">
+              <div class="hiw-box-title"><i class="bi bi-lightning-charge"></i> Live</div>
+              The system stays connected to the device and records each scan within seconds.
+              The employee's phone is notified right away.
+            </div></div>
+            <div class="col-md-6"><div class="hiw-box">
+              <div class="hiw-box-title"><i class="bi bi-arrow-repeat"></i> Sync every {{ sync_minutes }} min</div>
+              The system also re-reads the device's last 24 hours, so a scan the live connection missed is
+              still picked up. <b>Sync now</b> on the Devices page does the same on demand.
+            </div></div>
+          </div>
+          <ul class="hiw-list">
+            <li>Reading the same scan twice never records it twice.</li>
+            <li>If the system was offline, the device keeps the scans in its memory. When the system is back,
+              the sync brings in the last 24 hours, and the days it missed are worked out automatically.</li>
+            <li>The system checks its own clock against an internet time source and corrects any drift, so a
+              wrong server clock can't make someone late.</li>
+            <li>An employee is only judged from the day they were added to the system (or their hire date, if
+              later). Days before that are never counted as absent.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Sorting -->
+      <section class="card mb-3 hiw-section" id="sorting">
+        <div class="card-head"><span><i class="bi bi-sort-down me-1"></i> How scans are sorted</span>
+          <span class="text-muted fw-normal small">full-time</span></div>
+        <div class="card-pad">
+          <p>The device only records <i>when</i> someone scanned. The system decides what each scan means,
+            using the day split at the <b>midpoint, {{ g.midpoint|time:"g:i A" }}</b>:</p>
+          <ul class="hiw-list">
+            <li>Scans at or before the midpoint belong to the <b>morning</b>, scans after it to the
+              <b>afternoon</b>.</li>
+            <li>In each half, the <b>first</b> scan is the In and the <b>last</b> scan is the Out. Scans in
+              between are ignored.</li>
+            <li>A scan within <b>{{ duplicate_minutes }} minutes</b> of the In is a double press, never the Out.</li>
+            <li>A scan at or after a session's end time can't be its In: a lone scan after hours counts as an
+              Out with a missing In.</li>
+          </ul>
+
+          <div class="hiw-example">
+            <div class="hiw-example-title">Example: a normal day</div>
+            <table class="table table-sm mb-0 hiw-table">
+              <thead><tr><th>Scan</th><th>Becomes</th><th>Why</th></tr></thead>
+              <tbody>
+              {% for t, label, why in scans %}
+                <tr><td class="text-nowrap">{{ t|time:"g:i A" }}</td>
+                  <td>{% if label == 'ignored' %}<span class="badge-status s-neutral">ignored</span>{% else %}<span class="badge-status s-in">{{ label }}</span>{% endif %}</td>
+                  <td class="text-muted">{{ why }}</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <h6 class="hiw-h">Forgot to time out in the morning</h6>
+          <p>If the morning has an In but no Out, the first scan after the midpoint and before
+            PM In ({{ g.pm_in|time:"g:i A" }}) closes the morning as the AM Out. The next scan, even just
+            {{ lunch_minutes }} minute later, starts the afternoon.</p>
+          <div class="hiw-example">
+            <div class="hiw-example-title">Example: no AM Out before lunch</div>
+            <table class="table table-sm mb-0 hiw-table">
+              <thead><tr><th>Scan</th><th>Becomes</th><th>Why</th></tr></thead>
+              <tbody>
+              {% for t, label, why in forgot %}
+                <tr><td class="text-nowrap">{{ t|time:"g:i A" }}</td>
+                  <td><span class="badge-status s-in">{{ label }}</span></td>
+                  <td class="text-muted">{{ why }}</td></tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p class="small text-muted mt-3 mb-0"><i class="bi bi-info-circle"></i> The whole day is re-sorted each
+            time a new scan arrives, so a scan's label can change. For example, a lunch scan first shows as
+            PM In, then becomes the AM Out once it's clear the morning was never closed.</p>
+        </div>
+      </section>
+
+      <!-- Manual -->
+      <section class="card mb-3 hiw-section" id="manual">
+        <div class="card-head"><span><i class="bi bi-pencil-square me-1"></i> Manual entry</span></div>
+        <div class="card-pad">
+          <p>For when the device can't be used, for example during a brownout. On the
+            <a href="{% url 'webportal:manual_attendance' %}">Manual Entry</a> page an administrator picks
+            the employee and the punch type, and it is recorded <b>at the current time</b>, as if they had
+            scanned.</p>
+          <ul class="hiw-list">
+            <li>Full-timers: AM In/Out, PM In/Out, and OT In/Out (overtime only if it is authorized for today).
+              Part-timers: In/Out.</li>
+            <li><b>Duplicates are blocked:</b> the same punch again within {{ duplicate_minutes }} minutes, or an
+              Out within {{ duplicate_minutes }} minutes of its In, is rejected.</li>
+            <li>A manual punch keeps the type the administrator chose; the automatic sorting never changes it.
+              It is labelled <i>manual</i> and records who entered it.</li>
+            <li>The employee is notified just like a device scan.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Statuses -->
+      <section class="card mb-3 hiw-section" id="statuses">
+        <div class="card-head"><span><i class="bi bi-tags me-1"></i> Day statuses</span></div>
+        <div class="card-pad">
+          <p>A full-time workday has two sessions, morning and afternoon. A session counts only when it has
+            both its In and its Out.</p>
+          <div class="hiw-status-grid">
+            <div><span class="badge-status s-present">PRESENT</span> Both sessions complete, on time.</div>
+            <div><span class="badge-status s-late">LATE</span> Both sessions complete, at least one In was late.</div>
+            <div><span class="badge-status s-half">HALF DAY</span> One session complete, the other absent.</div>
+            <div><span class="badge-status s-absent">ABSENT</span> Neither session complete.</div>
+            <div><span class="badge-status s-neutral">IN PROGRESS</span> Today, and the session hasn't ended yet. Nothing is judged until it ends.</div>
+            <div><span class="badge-status s-half">INCOMPLETE</span> Part-time only: a single scan, so 0 hours for that day.</div>
+          </div>
+          <p class="small text-muted mt-3 mb-0">Days that aren't workdays (rest days) and holidays have no status and
+            count for nothing, unless a holiday rule below says otherwise.</p>
+        </div>
+      </section>
+
+      <!-- Lost time -->
+      <section class="card mb-3 hiw-section" id="lost-time">
+        <div class="card-head"><span><i class="bi bi-hourglass-bottom me-1"></i> Late, undertime &amp; lost time</span>
+          <span class="text-muted fw-normal small">full-time</span></div>
+        <div class="card-pad">
+          <div class="row g-3 mb-3">
+            <div class="col-md-4"><div class="hiw-box">
+              <div class="hiw-box-title text-late"><i class="bi bi-alarm"></i> Late</div>
+              Minutes an In is past the session start <b>plus the {{ g.grace_period_minutes }}-minute grace</b>.
+              Morning and afternoon are each checked.
+            </div></div>
+            <div class="col-md-4"><div class="hiw-box">
+              <div class="hiw-box-title text-late"><i class="bi bi-box-arrow-left"></i> Undertime</div>
+              Minutes an Out is <b>before</b> the session's end. There's no grace for leaving early.
+            </div></div>
+            <div class="col-md-4"><div class="hiw-box">
+              <div class="hiw-box-title text-absent"><i class="bi bi-person-x"></i> Absent</div>
+              A session without both In and Out counts its full length:
+              morning {{ am_minutes }} min, afternoon {{ pm_minutes }} min.
+            </div></div>
+          </div>
+          <div class="hiw-formula">Lost time = late minutes + undertime minutes + absent minutes</div>
+
+          <div class="hiw-example">
+            <div class="hiw-example-title">Example: two days, with grace until {{ grace_until|time:"g:i A" }}</div>
+            <table class="table table-sm mb-0 hiw-table">
+              <thead><tr><th>What happened</th><th class="text-end">Lost</th></tr></thead>
+              <tbody>
+                <tr><td>Day 1: scanned in at {{ example.arrived|time:"g:i A" }}</td>
+                  <td class="text-end text-nowrap">{{ example.late }} min late</td></tr>
+                <tr><td>Day 1: left at {{ example.left|time:"g:i A" }}, schedule ends {{ g.pm_out|time:"g:i A" }}</td>
+                  <td class="text-end text-nowrap">{{ example.under }} min undertime</td></tr>
+                <tr><td>Day 2: morning complete, no afternoon scans</td>
+                  <td class="text-end text-nowrap">{{ example.pm_absent }} min absent</td></tr>
+              </tbody>
+              <tfoot><tr><th>Total lost time</th><th class="text-end">{{ example.total }}</th></tr></tfoot>
+            </table>
+          </div>
+          <ul class="hiw-list mt-3 mb-0">
+            <li>The grace period only excuses arriving late. Past it, the minutes count from the end of the grace,
+              so an In at {{ example.arrived|time:"g:i A" }} is {{ example.late }} minutes late, not more.</li>
+            <li>An In without an Out (or the other way round) makes that session absent, marked as a missing
+              time out or time in.</li>
+            <li>Overtime never cancels out lost time.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Overtime -->
+      <section class="card mb-3 hiw-section" id="overtime">
+        <div class="card-head"><span><i class="bi bi-hourglass-split me-1"></i> Overtime</span></div>
+        <div class="card-pad">
+          <p>Overtime only counts when it's <b>authorized beforehand</b>. On the
+            <a href="{% url 'webportal:overtime' %}">Overtime</a> page an administrator authorizes an employee for a
+            date, with an overtime start time.</p>
+          <ul class="hiw-list mb-0">
+            <li>On that day, scans at or after the overtime start are the OT In (first) and OT Out (last).</li>
+            <li>Overtime = OT Out minus the later of the OT In and the authorized start. Scanning in early
+              doesn't add minutes.</li>
+            <li>Authorized but no OT scans: no overtime. Not authorized: staying late is just a later PM Out
+              and never counts as overtime.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Part-time -->
+      <section class="card mb-3 hiw-section" id="part-time">
+        <div class="card-head"><span><i class="bi bi-person me-1"></i> Part-time employees</span></div>
+        <div class="card-pad">
+          <p>Part-timers have no set hours. They can come in any day, weekends included, and are judged per
+            <b>week (Monday to Sunday)</b> instead of per day.</p>
+          <ul class="hiw-list">
+            <li>The first scan of the day is the In and the last is the Out (the {{ duplicate_minutes }}-minute
+              double-press rule applies). Hours for the day = Out minus In, with no break deducted.</li>
+            <li>A day with only one scan is <span class="badge-status s-half">INCOMPLETE</span> and worth 0 hours.</li>
+            <li>They are never marked absent, late, undertime or overtime.</li>
+          </ul>
+          <div class="hiw-formula">A week is met when they render at least <b>{{ weekly_hours }} hours</b>
+            on at least <b>{{ g.parttime_min_days }} different day{{ g.parttime_min_days|pluralize }}</b></div>
+          <p class="small text-muted">Both numbers are set on the <a href="{% url 'webportal:schedule' %}?tab=parttime">Schedule
+            page's Part-time tab</a>. An employee can have their own weekly hours, and only days with both an In
+            and an Out count toward the days.</p>
+          <div class="hiw-status-grid">
+            <div><span class="badge-status s-present"><i class="bi bi-check-lg"></i> Met</span> Hours and days both reached.</div>
+            <div><span class="badge-status s-neutral">In progress</span> The week isn't over yet.</div>
+            <div><span class="badge-status s-absent">Short</span> The week ended without the hours, the days, or both.
+              The badge says what was missing, e.g. "Short by 2h &amp; 1 day".</div>
+          </div>
+          <p class="small text-muted mt-3 mb-0"><i class="bi bi-info-circle"></i> Rendering all {{ weekly_hours }} hours in a
+            single long day still leaves the week short{% if g.parttime_min_days > 1 %} by
+            {{ g.parttime_min_days|add:"-1" }} day{{ g.parttime_min_days|add:"-1"|pluralize }}{% endif %}.</p>
+        </div>
+      </section>
+
+      <!-- Holidays -->
+      <section class="card mb-3 hiw-section" id="holidays">
+        <div class="card-head"><span><i class="bi bi-calendar-event me-1"></i> Holidays</span></div>
+        <div class="card-pad">
+          <p>Holidays are set on the <a href="{% url 'webportal:holidays' %}">Holidays</a> page. Both
+            <b>Regular</b> and <b>Special</b> holidays are days off: no scan is needed and nobody is marked
+            absent. A <b>recurring</b> holiday repeats on the same date every year. Adding, editing or deleting a
+            holiday re-calculates that date for everyone.</p>
+
+          <h6 class="hiw-h">The day-before / day-after rule</h6>
+          <p>A full-timer gets the holiday off only if they came to work on the nearest workday
+            <b>before</b> and <b>after</b> it. If they had no scan at all on either of those days, the holiday is
+            counted as absent too. This stops a holiday from being stretched into a longer leave.</p>
+          <ul class="hiw-list">
+            <li>Rest days and other holidays are skipped when finding the nearest workday.</li>
+            <li>Until the day after has happened, the employee gets the benefit of the doubt. The holiday is
+              checked again once it has passed.</li>
+          </ul>
+
+          <h6 class="hiw-h">Special holiday with attendance required</h6>
+          <p>For events such as a foundation day program, a Special holiday can require attendance for the
+            <b>morning</b>, the <b>afternoon</b>, or both.</p>
+          <ul class="hiw-list mb-0">
+            <li>Complete the required session(s), with both In and Out, and the <b>whole day</b> counts as present:
+              a full {{ day_hours }}, with no late, undertime or absence.</li>
+            <li>Otherwise the day is judged as a normal workday, so the missing sessions count as absent.</li>
+            <li>The day-before / day-after rule doesn't apply to these days.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Schedules -->
+      <section class="card mb-3 hiw-section" id="schedules">
+        <div class="card-head"><span><i class="bi bi-clock me-1"></i> Schedules</span></div>
+        <div class="card-pad">
+          <p>Everything above is measured against the schedule on the
+            <a href="{% url 'webportal:schedule' %}">Schedule</a> page. The current institution default is:</p>
+          <div class="hiw-sched">
+            <div><span>Morning</span><b>{{ g.am_in|time:"g:i A" }} – {{ g.am_out|time:"g:i A" }}</b></div>
+            <div><span>Afternoon</span><b>{{ g.pm_in|time:"g:i A" }} – {{ g.pm_out|time:"g:i A" }}</b></div>
+            <div><span>Grace period</span><b>{{ g.grace_period_minutes }} min</b></div>
+            <div><span>Midpoint</span><b>{{ g.midpoint|time:"g:i A" }}</b></div>
+            <div><span>Workdays</span><b>{{ workdays }}</b></div>
+            <div><span>Part-time</span><b>{{ weekly_hours }} h · {{ g.parttime_min_days }} day{{ g.parttime_min_days|pluralize }} / week</b></div>
+          </div>
+          <p class="small text-muted mt-3 mb-0">An employee can have their own schedule. Any field left blank
+            follows the institution default.</p>
+        </div>
+      </section>
+
+      <!-- Notifications & reports -->
+      <section class="card mb-3 hiw-section" id="notifications">
+        <div class="card-head"><span><i class="bi bi-bell me-1"></i> Notifications &amp; reports</span></div>
+        <div class="card-pad">
+          <ul class="hiw-list mb-0">
+            <li><b>Every recorded punch</b> sends a notification to the employee's phone, e.g. "AM In recorded —
+              7:54 AM", or "AM In — 8:12 AM (Late by 7 min)".</li>
+            <li><b>Absences</b> are notified ("Marked Absent") once the missed session has ended. After an outage,
+              only yesterday is notified; older days are filled in quietly.</li>
+            <li>The <b>mobile app</b> shows the employee their own records, monthly summary and, for
+              part-timers, their weekly hours, all calculated the same way as here.</li>
+            <li><a href="{% url 'webportal:reports' %}">Reports</a> (PDF or Excel) use exactly the same
+              calculations, per employee or department, for any date range.</li>
+          </ul>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

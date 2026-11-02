@@ -849,3 +849,47 @@ class EmployeeRecordsTests(TestCase):
     def test_records_are_admin_only(self):
         self.client.logout()
         self.assertEqual(self._records(self.ft, self.MON, self.MON).status_code, 302)
+
+
+class HowItWorksTests(TestCase):
+    """The help page explains the rules using the live schedule settings."""
+
+    @classmethod
+    def setUpTestData(cls):
+        g = GlobalSchedule.load()
+        g.am_in, g.grace_period_minutes = time(7, 30), 10
+        g.parttime_weekly_hours, g.parttime_min_days = 12, 3
+        g.save()
+        cls.admin = User.objects.create(username='help-admin', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+        cls.employee = User.objects.create(username='help-emp', role=User.Roles.EMPLOYEE)
+        cls.employee.set_password(PASSWORD)
+        cls.employee.save()
+
+    def test_sidebar_links_to_it_with_the_exclamation_icon(self):
+        self.client.login(username='help-admin', password=PASSWORD)
+        html = self.client.get(reverse('webportal:dashboard')).content.decode()
+        link = html[html.index(reverse('webportal:how_it_works')) - 200:]
+        self.assertIn('bi-exclamation-circle', link[:500])
+
+    def test_page_uses_the_current_settings(self):
+        self.client.login(username='help-admin', password=PASSWORD)
+        resp = self.client.get(reverse('webportal:how_it_works'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'nav-link active', count=1)
+        for section in ('recording', 'sorting', 'manual', 'statuses', 'lost-time',
+                        'overtime', 'part-time', 'holidays', 'schedules', 'notifications'):
+            self.assertContains(resp, f'id="{section}"')
+        # Grace ends 7:40; the late example scans in 7 minutes past it.
+        self.assertContains(resp, 'grace until 7:40 AM')
+        self.assertContains(resp, 'scanned in at 7:47 AM')
+        self.assertContains(resp, '<b>12 hours</b>', html=False)
+        self.assertContains(resp, '<b>3 different days</b>', html=False)
+        self.assertIn('short by 2 days', ' '.join(resp.content.decode().split()))
+
+    def test_admins_only(self):
+        self.client.login(username='help-emp', password=PASSWORD)
+        resp = self.client.get(reverse('webportal:how_it_works'))
+        self.assertEqual(resp.status_code, 302)

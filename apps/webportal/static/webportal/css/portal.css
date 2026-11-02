@@ -1206,3 +1206,60 @@ button.stat-card { width: 100%; text-align: left; font: inherit; }
 
 /* active-employees dashboard modal */
 .active-emp-row:hover { background: var(--bg); border-radius: 10px; padding-left: 6px; padding-right: 6px; margin: 0 -6px; }
+
+/* ---------------------------------------------------- how it works page --- */
+.hiw p { line-height: 1.6; }
+.hiw-flow { list-style: none; margin: 0; padding: 0; display: grid;
+  grid-template-columns: repeat(5, 1fr); gap: 10px; counter-reset: step; }
+.hiw-flow li { position: relative; background: var(--brand-soft); border-radius: 12px;
+  padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; }
+.hiw-flow li i { font-size: 20px; color: var(--brand); margin-bottom: 4px; }
+.hiw-flow li b { font-family: 'Poppins', sans-serif; }
+.hiw-flow li span { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.hiw-flow li:not(:last-child)::after { content: "\F285"; font-family: bootstrap-icons;
+  position: absolute; right: -10px; top: 50%; transform: translateY(-50%);
+  color: var(--brand); font-size: 12px; z-index: 1; }
+.hiw-toc { position: sticky; top: 84px; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius-card); box-shadow: var(--shadow); padding: 12px; }
+.hiw-toc-title { font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); padding: 4px 8px 8px; }
+.hiw-toc a { display: flex; gap: 8px; align-items: center; padding: 7px 8px; border-radius: 8px;
+  color: var(--ink); text-decoration: none; font-size: 13px; }
+.hiw-toc a i { color: var(--brand); }
+.hiw-toc a:hover { background: var(--brand-soft); }
+.hiw-section { scroll-margin-top: 84px; }
+.hiw-list { padding-left: 1.1rem; }
+.hiw-list li { margin-bottom: 6px; line-height: 1.55; }
+.hiw-box { height: 100%; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px; font-size: 13.5px; line-height: 1.5; }
+.hiw-box-title { font-weight: 700; margin-bottom: 4px; }
+.hiw-box-title i { margin-right: 4px; }
+.hiw-example { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.hiw-example-title { background: var(--bg); padding: 8px 12px; font-size: 12px;
+  font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
+.hiw-table { --bs-table-bg: transparent; }
+.hiw-table th, .hiw-table td { padding: 8px 12px; vertical-align: middle; }
+.hiw-formula { background: var(--brand-soft); color: var(--ink); border-radius: 12px;
+  padding: 12px 16px; margin-bottom: 16px; font-weight: 600; text-align: center; }
+.hiw-h { font-family: 'Poppins', sans-serif; font-weight: 600; margin: 20px 0 8px; }
+.hiw-status-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 18px; font-size: 13.5px; }
+.hiw-status-grid > div { display: flex; gap: 10px; align-items: baseline; }
+.hiw-status-grid .badge-status { flex: 0 0 auto; min-width: 92px; text-align: center; }
+.hiw-sched { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.hiw-sched > div { background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 12px; display: flex; flex-direction: column; }
+.hiw-sched span { color: var(--muted); font-size: 12px; }
+@media (max-width: 991.98px) {
+  .hiw-toc { position: static; display: flex; flex-wrap: wrap; gap: 4px; }
+  .hiw-toc-title { width: 100%; }
+  .hiw-toc a { background: var(--bg); }
+  .hiw-flow { grid-template-columns: 1fr; }
+  .hiw-flow li { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .hiw-flow li i { margin: 0; }
+  .hiw-flow li span { width: 100%; }
+  .hiw-flow li:not(:last-child)::after { content: "\F282"; right: 50%; top: auto; bottom: -11px;
+    transform: translateX(50%); }
+}
+@media (max-width: 767.98px) {
+  .hiw-status-grid, .hiw-sched { grid-template-columns: 1fr; }
+}

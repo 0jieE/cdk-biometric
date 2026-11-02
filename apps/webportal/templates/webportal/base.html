@@ -45,6 +45,9 @@
         <div class="nav-section">Reports</div>
         <a class="nav-link {% if url == 'reports' %}active{% endif %}" href="{% url 'webportal:reports' %}" title="Reports"><i class="bi bi-file-earmark-bar-graph"></i> <span class="nav-label">Reports</span></a>
         <a class="nav-link" href="{% url 'webportal:live' %}" target="_blank" title="Live Logs"><i class="bi bi-tv"></i> <span class="nav-label">Live Logs</span> <i class="bi bi-box-arrow-up-right ms-auto small nav-extra"></i></a>
+
+        <div class="nav-section">Help</div>
+        <a class="nav-link {% if url == 'how_it_works' %}active{% endif %}" href="{% url 'webportal:how_it_works' %}" title="How It Works"><i class="bi bi-exclamation-circle"></i> <span class="nav-label">How It Works</span></a>
         {% endwith %}
       </nav>
     </aside>
