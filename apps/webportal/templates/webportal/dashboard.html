@@ -171,14 +171,57 @@
       </div>
     </div>
 
+    <!-- Devices -->
+    <div class="card">
+      <div class="card-head"><span><i class="bi bi-hdd-network me-1"></i> Devices</span>
+        <div class="d-flex align-items-center gap-2">
+          <span class="text-muted small" id="devSummary"></span>
+          <a href="{% url 'webportal:devices' %}" class="btn btn-soft btn-sm">Manage</a>
+        </div></div>
+      <div class="card-pad">
+        {% if devices %}
+        <div class="top-grid" id="dashDevices">
+          {% for d in devices %}
+          <a class="top-card dev-tile{% if not d.is_active %} is-inactive{% endif %}"
+             style="--tc:{% if d.is_active %}{{ d.avatar_color }}{% else %}#8A90A0{% endif %}"
+             href="{% url 'webportal:devices' %}" title="{{ d.name }} ({{ d.ip_address }}:{{ d.port }})">
+            <div class="top-avatar">
+              <span class="avatar avatar-md">
+                {% if d.photo %}<img src="{{ d.photo.url }}" alt="{{ d.name }}">
+                {% else %}<span class="avatar-wm" style="--wm:{{ d.avatar_color }}"><i class="bi bi-hdd-network"></i></span>{% endif %}
+              </span>
+            </div>
+            <div class="top-name">{{ d.name }}</div>
+            <div class="top-sub">{{ d.location|default:"No location set" }}</div>
+            <div class="dev-tile-status">
+              {% if d.is_active %}
+              {# hx-target="this": each badge swaps only itself; an offline device's timeout never blocks the others #}
+              <span class="dash-dev-badge" hx-get="{% url 'webportal:device_status' d.id %}"
+                    hx-trigger="load, every 30s" hx-target="this" hx-swap="innerHTML">
+                <span class="badge-status s-neutral"><span class="spinner-border spinner-border-sm"></span> Checking…</span>
+              </span>
+              {% else %}
+              <span class="badge-status s-neutral" title="Inactive devices are not synced">Inactive</span>
+              {% endif %}
+            </div>
+            <div class="top-break">{{ d.ip_address }}:{{ d.port }}</div>
+            <div class="top-break">{% if d.last_synced_at %}Synced {{ d.last_synced_at|timesince }} ago{% else %}Never synced{% endif %}</div>
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="hol-empty"><i class="bi bi-hdd-network"></i>
+          <div>No devices registered yet.</div>
+          <a href="{% url 'webportal:devices' %}" class="btn btn-soft btn-sm mt-2">Add a device</a></div>
+        {% endif %}
+      </div>
+    </div>
+
     <!-- Recent punches -->
     <div class="card">
       <div class="card-head">
         <span><i class="bi bi-clock-history me-1"></i> Recent Punches</span>
         <div class="d-flex align-items-center gap-2">
-          <div id="deviceStatus" hx-get="{% url 'webportal:dashboard_device_status' %}" hx-trigger="load, every 30s">
-            <span class="badge-status s-neutral">Checking device…</span>
-          </div>
           <button class="btn btn-soft btn-sm" hx-post="{% url 'webportal:sync_now' %}"
                   hx-target="#toasts" hx-swap="beforeend" hx-indicator="#syncSpin" hx-disabled-elt="this"
                   title="Pull latest punches from the device">
@@ -208,6 +251,23 @@
     d.textContent = n.toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric'});
   }
   tick(); setInterval(tick, 1000);
+})();
+
+// Devices card: "2 of 3 online", recounted whenever a badge re-polls.
+(function () {
+  var list = document.getElementById('dashDevices'), out = document.getElementById('devSummary');
+  if (!list || !out) return;
+  function count() {
+    var badges = list.querySelectorAll('.dash-dev-badge');
+    if (!badges.length) { out.textContent = ''; return; }
+    var online = list.querySelectorAll('.dash-dev-badge .s-present').length;
+    var checking = list.querySelectorAll('.dash-dev-badge .spinner-border').length;
+    out.textContent = checking ? 'Checking…' : online + ' of ' + badges.length + ' online';
+  }
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    if (list.contains(e.target)) count();
+  });
+  count();
 })();
 </script>
 {% endblock %}

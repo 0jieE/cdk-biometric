@@ -431,8 +431,9 @@ class DeviceTestConnectionTests(TestCase):
         get_client.assert_called_once_with(ip='192.168.1.9', port=4370)
 
 
-class DashboardDeviceStatusTests(TestCase):
-    """The dashboard shows whether the biometric device is reachable."""
+class DashboardDevicesCardTests(TestCase):
+    """The dashboard has its own Devices card listing every device, each with
+    its own live connection badge."""
 
     @classmethod
     def setUpTestData(cls):
@@ -444,47 +445,43 @@ class DashboardDeviceStatusTests(TestCase):
     def setUp(self):
         self.client.login(username='admin8', password=PASSWORD)
 
-    def test_no_active_device_shows_no_device(self):
-        resp = self.client.get(reverse('webportal:dashboard_device_status'))
-        self.assertContains(resp, 'No Device')
-
-    @patch('apps.webportal.views.get_device_client')
-    def test_reachable_device_shows_connected(self, get_client):
-        BiometricDevice.objects.create(
-            name='Main Entrance', ip_address='192.168.1.3', port=4370, is_active=True)
-        get_client.return_value.quick_check.return_value = True
-        resp = self.client.get(reverse('webportal:dashboard_device_status'))
-        self.assertContains(resp, 'Device Connected')
-        self.assertNotContains(resp, 'Device Offline')
-        get_client.assert_called_once_with(ip='192.168.1.3', port=4370)
-        get_client.return_value.quick_check.assert_called_once_with(timeout=2)
-
-    @patch('apps.webportal.views.get_device_client')
-    def test_unreachable_device_shows_offline(self, get_client):
-        BiometricDevice.objects.create(
-            name='Main Entrance', ip_address='192.168.1.9', port=4370, is_active=True)
-        get_client.return_value.quick_check.return_value = False
-        resp = self.client.get(reverse('webportal:dashboard_device_status'))
-        self.assertContains(resp, 'Device Offline')
-        self.assertNotContains(resp, 'Device Connected')
-
-    @patch('apps.webportal.views.get_device_client')
-    def test_a_connection_error_shows_offline_not_a_crash(self, get_client):
-        BiometricDevice.objects.create(
-            name='Main Entrance', ip_address='192.168.1.9', port=4370, is_active=True)
-        get_client.side_effect = ConnectionError('offline')
-        resp = self.client.get(reverse('webportal:dashboard_device_status'))
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'Device Offline')
-
-    def test_device_status_endpoint_is_admin_only(self):
-        self.client.logout()
-        resp = self.client.get(reverse('webportal:dashboard_device_status'))
-        self.assertEqual(resp.status_code, 302)
-
-    def test_dashboard_polls_the_device_status_endpoint(self):
+    def test_no_devices_shows_an_empty_state(self):
         resp = self.client.get(reverse('webportal:dashboard'))
-        self.assertContains(resp, reverse('webportal:dashboard_device_status'))
+        self.assertContains(resp, 'No devices registered yet.')
+
+    def test_every_device_is_listed_with_its_details(self):
+        main = BiometricDevice.objects.create(
+            name='Main Entrance', ip_address='192.168.1.3', port=4370,
+            location='Lobby', is_active=True)
+        annex = BiometricDevice.objects.create(
+            name='Annex Gate', ip_address='192.168.1.4', port=4371, is_active=True)
+        resp = self.client.get(reverse('webportal:dashboard'))
+        for d in (main, annex):
+            self.assertContains(resp, d.name)
+            self.assertContains(resp, f'{d.ip_address}:{d.port}')
+            # each active device polls its own status endpoint
+            self.assertContains(resp, reverse('webportal:device_status', args=[d.id]))
+        self.assertContains(resp, 'Lobby')
+        self.assertContains(resp, 'Never synced')
+
+    def test_an_inactive_device_is_shown_but_not_polled(self):
+        old = BiometricDevice.objects.create(
+            name='Old Unit', ip_address='192.168.1.8', port=4370, is_active=False)
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertContains(resp, 'Old Unit')
+        self.assertContains(resp, 'is-inactive')
+        self.assertNotContains(resp, reverse('webportal:device_status', args=[old.id]))
+
+    def test_last_sync_is_shown(self):
+        BiometricDevice.objects.create(
+            name='Main Entrance', ip_address='192.168.1.3', port=4370, is_active=True,
+            last_synced_at=timezone.now() - timedelta(minutes=5))
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertContains(resp, 'Synced 5')
+
+    def test_recent_punches_no_longer_carries_the_device_badge(self):
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertNotContains(resp, 'id="deviceStatus"')
 
 
 class DeviceCardStatusTests(TestCase):

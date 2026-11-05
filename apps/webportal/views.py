@@ -144,6 +144,9 @@ def dashboard(request):
         'weekday_labels': ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
         'upcoming_holidays': Holiday.objects.filter(date__gte=today).order_by('date')[:5],
 
+        # Devices: each row loads (and re-polls) its own connection badge.
+        'devices': BiometricDevice.objects.order_by('-is_active', 'name'),
+
         # Lost-time analytics for the current month
         'dept_lost': dept_lost,
         'gridlines': gridlines,
@@ -175,14 +178,6 @@ def _device_online(device):
             ip=device.ip_address, port=device.port).quick_check(timeout=2)
     except Exception:
         return False
-
-
-@admin_required
-def dashboard_device_status(request):
-    device = BiometricDevice.objects.filter(is_active=True).first()
-    online = device is not None and _device_online(device)
-    return render(request, 'webportal/partials/dashboard_device_status.html',
-                  {'device': device, 'online': online})
 
 
 @admin_required

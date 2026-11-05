@@ -1054,6 +1054,12 @@ button.stat-card { width: 100%; text-align: left; font: inherit; }
 .dash-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 18px; align-items: start; }
 .dash-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 
+/* Dashboard: Devices card (tiles reuse the Top 5 .top-card look) */
+.dev-tile .avatar-wm i { font-size: 18px; }
+.dev-tile-status { margin-top: 8px; margin-bottom: 4px; min-height: 24px; }
+.dev-tile-status .badge-status { box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.dev-tile.is-inactive { opacity: .75; }
+
 /* clock */
 .dash-clock { text-align: center; padding: 4px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
 .dc-time { font-family: 'Poppins', sans-serif; font-weight: 800; font-size: 38px; line-height: 1; color: var(--brand); font-variant-numeric: tabular-nums; }
