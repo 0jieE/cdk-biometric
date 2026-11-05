@@ -272,6 +272,8 @@ class ManualAttendanceForm(forms.Form):
                 f"{log_type} is not valid for a "
                 f"{'full-time' if emp.is_fulltime else 'part-time'} employee.")
 
+        self._reject_outside_session(emp, log_type)
+
         if log_type in ('OT_IN', 'OT_OUT'):
             from django.utils import timezone
             if not OTAuthorization.objects.filter(
@@ -282,6 +284,43 @@ class ManualAttendanceForm(forms.Form):
 
         self._reject_duplicate(emp, log_type)
         return cd
+
+    def _reject_outside_session(self, emp, log_type):
+        """A session's In is closed once its time out has passed (12:00 PM for
+        AM In), and its Out isn't open until its time in (8:00 AM for AM Out).
+        AM Out also closes when the afternoon starts (1:00 PM), just as a
+        device scan from then on can't be the AM Out, and PM In only opens at
+        the midpoint (12:30 PM), where device scans become afternoon. By the employee's own
+        schedule and the server's trusted clock; the Punch Terminal shows the
+        same rule (see manual_attendance.html)."""
+        if log_type not in ('AM_IN', 'AM_OUT', 'PM_IN', 'PM_OUT'):
+            return
+        from django.utils import timezone
+
+        from apps.organization.schedule import get_effective_schedule
+        from apps.organization.trusted_time import trusted_now
+
+        sched = get_effective_schedule(emp)
+        now = timezone.localtime(trusted_now()).time()
+        session = 'morning' if log_type.startswith('AM') else 'afternoon'
+        sched_in = sched.am_in if session == 'morning' else sched.pm_in
+        sched_out = sched.am_out if session == 'morning' else sched.pm_out
+
+        def fmt(t):
+            return t.strftime('%I:%M %p').lstrip('0')
+
+        if log_type.endswith('_IN') and now >= sched_out:
+            raise forms.ValidationError(
+                f'{log_type} is closed: the {session} session ended at {fmt(sched_out)}.')
+        if log_type.endswith('_OUT') and now < sched_in:
+            raise forms.ValidationError(
+                f'{log_type} is not open yet: the {session} session starts at {fmt(sched_in)}.')
+        if log_type == 'AM_OUT' and now >= sched.pm_in:
+            raise forms.ValidationError(
+                f'AM_OUT is closed: the afternoon session started at {fmt(sched.pm_in)}.')
+        if log_type == 'PM_IN' and now < sched.midpoint:
+            raise forms.ValidationError(
+                f'PM_IN is not open yet: it opens at the midpoint, {fmt(sched.midpoint)}.')
 
     # OUT type -> the IN it closes.
     _IN_FOR_OUT = {'AM_OUT': 'AM_IN', 'PM_OUT': 'PM_IN', 'OT_OUT': 'OT_IN', 'OUT': 'IN'}

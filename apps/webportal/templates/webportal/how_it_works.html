@@ -145,6 +145,34 @@
               It is labelled <i>manual</i> and records who entered it.</li>
             <li>The employee is notified just like a device scan.</li>
           </ul>
+
+          <h6 class="hiw-h">When each punch can be recorded</h6>
+          <p>A full-timer's punch can only be recorded while it makes sense for the time of day, by the
+            <b>server's clock</b> and the employee's own schedule. Outside its window the terminal shows the
+            type crossed out with the reason, and the Record button is locked.</p>
+          <div class="hiw-example">
+            <div class="hiw-example-title">With the current schedule</div>
+            <table class="table table-sm mb-0 hiw-table">
+              <thead><tr><th>Punch</th><th>Opens</th><th>Closes</th></tr></thead>
+              <tbody>
+                <tr><td><span class="badge-status s-in">AM In</span></td>
+                  <td>any time (arriving early is fine)</td>
+                  <td>{{ g.am_out|time:"g:i A" }} <span class="text-muted small">· the morning ends</span></td></tr>
+                <tr><td><span class="badge-status s-out">AM Out</span></td>
+                  <td>{{ g.am_in|time:"g:i A" }} <span class="text-muted small">· the morning starts</span></td>
+                  <td>{{ g.pm_in|time:"g:i A" }} <span class="text-muted small">· the afternoon starts</span></td></tr>
+                <tr><td><span class="badge-status s-in">PM In</span></td>
+                  <td>{{ g.midpoint|time:"g:i A" }} <span class="text-muted small">· the midpoint</span></td>
+                  <td>{{ g.pm_out|time:"g:i A" }} <span class="text-muted small">· the afternoon ends</span></td></tr>
+                <tr><td><span class="badge-status s-out">PM Out</span></td>
+                  <td>{{ g.pm_in|time:"g:i A" }} <span class="text-muted small">· the afternoon starts</span></td>
+                  <td>end of the day</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="small text-muted mt-3 mb-0"><i class="bi bi-info-circle"></i> These match how device scans are
+            sorted: before the midpoint a scan is always morning, and from {{ g.pm_in|time:"g:i A" }} on it can't be
+            the AM Out. Part-timers' In/Out and OT punches have no window.</p>
         </div>
       </section>
 

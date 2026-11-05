@@ -55,6 +55,7 @@
         <div class="dv-type" id="type-display">
           <div class="dv-type-hint">Log type</div>
           <div class="dv-type-value" id="type-value">—</div>
+          <div class="dv-type-note" id="type-note" hidden></div>
         </div>
         <button type="button" class="dv-arrow" id="type-next" aria-label="Next"><i class="bi bi-chevron-right"></i></button>
       </div>
@@ -98,16 +99,25 @@
   var LABELS = { AM_IN:'AM In', AM_OUT:'AM Out', PM_IN:'PM In', PM_OUT:'PM Out',
                  OT_IN:'OT In', OT_OUT:'OT Out', IN:'Time In', OUT:'Time Out' };
 
-  /* live clock */
+  /* live clock — the SERVER's time (punches are stamped with it), not this
+     browser's. SERVER_MS is the server's local wall clock encoded as UTC, so
+     it is read back with the getUTC* methods. */
+  var SERVER_MS = {{ server_ms }}, LOADED = Date.now();
+  function serverNow() { return new Date(SERVER_MS + Date.now() - LOADED); }
+  function nowMinutes() { var n = serverNow(); return n.getUTCHours() * 60 + n.getUTCMinutes(); }
+  function p(x){ return (x<10?'0':'')+x; }
+  function fmtMinutes(m) {
+    var h = Math.floor(m / 60), ap = h>=12?'PM':'AM';
+    return (h%12||12)+':'+p(m%60)+' '+ap;
+  }
   var t = document.getElementById('dv-time'), d = document.getElementById('dv-date');
   function tick() {
-    var n = new Date();
-    function p(x){ return (x<10?'0':'')+x; }
-    var h = n.getHours(), ap = h>=12?'PM':'AM', h12 = h%12||12;
-    t.textContent = p(h12)+':'+p(n.getMinutes())+':'+p(n.getSeconds())+' '+ap;
-    d.textContent = n.toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+    var n = serverNow();
+    var h = n.getUTCHours(), ap = h>=12?'PM':'AM', h12 = h%12||12;
+    t.textContent = p(h12)+':'+p(n.getUTCMinutes())+':'+p(n.getUTCSeconds())+' '+ap;
+    d.textContent = n.toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'UTC'});
+    if (current) renderType();   /* a type opens/closes as the clock passes it */
   }
-  tick(); setInterval(tick, 1000);
 
   /* employee search-select */
   var search = document.getElementById('emp-search');
@@ -118,6 +128,27 @@
   var empField = document.getElementById('punch-emp');
   var typeField = document.getElementById('punch-type');
   var current = null, types = [], typeIdx = 0;
+
+  /* Why a type can't be recorded right now, or null. A session's In closes
+     once its time out has passed; its Out opens at its time in; AM Out
+     closes when the afternoon starts; PM In opens at the midpoint. Same rule
+     as ManualAttendanceForm on the server. */
+  function closedReason(key) {
+    var s = current && current.sched;
+    if (!s) return null;   /* part-timers and OT punches have no session window */
+    var now = nowMinutes();
+    if (key === 'AM_IN'  && now >= s.am_out) return 'Closed · the morning ended at ' + fmtMinutes(s.am_out);
+    if (key === 'PM_IN'  && now >= s.pm_out) return 'Closed · the afternoon ended at ' + fmtMinutes(s.pm_out);
+    if (key === 'AM_OUT' && now < s.am_in)   return 'Opens at ' + fmtMinutes(s.am_in);
+    if (key === 'AM_OUT' && now >= s.pm_in) return 'Closed · the afternoon started at ' + fmtMinutes(s.pm_in);
+    if (key === 'PM_IN'  && now < s.midpoint) return 'Opens at ' + fmtMinutes(s.midpoint);
+    if (key === 'PM_OUT' && now < s.pm_in)   return 'Opens at ' + fmtMinutes(s.pm_in);
+    return null;
+  }
+  function firstOpen() {
+    for (var i = 0; i < types.length; i++) if (!closedReason(types[i])) return i;
+    return 0;
+  }
 
   function avatarHTML(e) {
     return e.photo ? '<img src="'+e.photo+'" alt="">'
@@ -147,8 +178,7 @@
     document.getElementById('sel-type').textContent = e.ft ? 'Full-time' : 'Part-time';
     selected.hidden = false;
     types = e.ft ? FT.slice() : PT.slice();
-    typeIdx = 0; renderType();
-    record.disabled = false;
+    typeIdx = firstOpen(); renderType();
   }
   function clearEmp() {
     current = null; empField.value = ''; typeField.value = '';
@@ -176,15 +206,21 @@
   /* log type stepper */
   var typeValue = document.getElementById('type-value');
   var typeDisplay = document.getElementById('type-display');
+  var typeNote = document.getElementById('type-note');
   function renderType() {
     if (!types.length) { typeValue.textContent = '—'; typeField.value = '';
-      typeDisplay.classList.remove('is-in', 'is-out'); return; }
-    var key = types[typeIdx];
+      typeNote.hidden = true; record.disabled = true;
+      typeDisplay.classList.remove('is-in', 'is-out', 'is-closed'); return; }
+    var key = types[typeIdx], reason = closedReason(key);
     typeValue.textContent = LABELS[key] || key;
     typeField.value = key;
     var isOut = /OUT$/.test(key);
-    typeDisplay.classList.toggle('is-out', isOut);
-    typeDisplay.classList.toggle('is-in', !isOut);
+    typeDisplay.classList.toggle('is-out', isOut && !reason);
+    typeDisplay.classList.toggle('is-in', !isOut && !reason);
+    typeDisplay.classList.toggle('is-closed', !!reason);
+    typeNote.hidden = !reason;
+    typeNote.textContent = reason || '';
+    record.disabled = !!reason;
   }
   function step(dir) {
     if (!types.length) return;
@@ -195,8 +231,10 @@
   document.getElementById('type-next').addEventListener('click', function () { step(1); });
 
   document.getElementById('punch-form').addEventListener('submit', function (ev) {
-    if (!empField.value || !typeField.value) ev.preventDefault();
+    if (!empField.value || !typeField.value || closedReason(typeField.value)) ev.preventDefault();
   });
+
+  tick(); setInterval(tick, 1000);
 })();
 </script>
 {% endblock %}

@@ -20,6 +20,18 @@ User = get_user_model()
 PASSWORD = 'portalpass12345'
 
 
+def frozen_clock(test, hour, minute=0):
+    """Pin the trusted clock (what manual punches are stamped with and checked
+    against) to today at hour:minute for the rest of ``test``."""
+    moment = timezone.make_aware(datetime.combine(timezone.localdate(), time(hour, minute)))
+    for target in ('apps.webportal.views.trusted_now',
+                   'apps.organization.trusted_time.trusted_now'):
+        patcher = patch(target, return_value=moment)
+        patcher.start()
+        test.addCleanup(patcher.stop)
+    return moment
+
+
 class PortalAccessTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -106,6 +118,11 @@ class PortalAccessTests(TestCase):
         return self.client.post(reverse('webportal:manual_attendance'), {
             'employee': self.emp.id, 'log_type': log_type})
 
+    def setUp(self):
+        # Mid-morning: AM In, AM Out and PM In are all open, so the duplicate
+        # tests below don't depend on when the suite happens to run.
+        frozen_clock(self, 10, 0)
+
     def _backdate_logs(self, minutes):
         AttendanceLog.objects.filter(employee=self.emp).update(
             log_datetime=models.F('log_datetime') - timedelta(minutes=minutes))
@@ -132,7 +149,8 @@ class PortalAccessTests(TestCase):
         self.assertTrue(AttendanceLog.objects.filter(log_type='AM_OUT').exists())
 
     def test_unrelated_punch_types_are_not_blocked(self):
-        # e.g. PM_OUT then OT_IN a minute later is a real sequence.
+        # e.g. AM_OUT then PM_IN over lunch is a real sequence.
+        frozen_clock(self, 12, 45)
         self.client.login(username='admin1', password=PASSWORD)
         self._manual('AM_OUT')
         self._manual('PM_IN')
@@ -893,8 +911,118 @@ class HowItWorksTests(TestCase):
         self.assertContains(resp, '<b>12 hours</b>', html=False)
         self.assertContains(resp, '<b>3 different days</b>', html=False)
         self.assertIn('short by 2 days', ' '.join(resp.content.decode().split()))
+        # Manual entry windows, from the same settings (AM In 7:30, midpoint 12:30, PM In 1:00).
+        text = ' '.join(resp.content.decode().split())
+        self.assertIn('When each punch can be recorded', text)
+        self.assertIn('AM Out</span></td> <td>7:30 AM', text)
+        self.assertIn('PM In</span></td> <td>12:30 PM', text)
+        self.assertIn('PM Out</span></td> <td>1:00 PM', text)
 
     def test_admins_only(self):
         self.client.login(username='help-emp', password=PASSWORD)
         resp = self.client.get(reverse('webportal:how_it_works'))
         self.assertEqual(resp.status_code, 302)
+
+
+class ManualSessionWindowTests(TestCase):
+    """Manual entry: a session's In closes once its time out has passed, and
+    its Out only opens at its time in (default 8-12 / 1-5)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.ft = Employee.objects.create(
+            employee_no='MW-1', first_name='Full', last_name='Timer',
+            department=dept, biometric_id='9701', is_fulltime=True)
+        cls.pt = Employee.objects.create(
+            employee_no='MW-2', first_name='Part', last_name='Timer',
+            department=dept, biometric_id='9702', is_fulltime=False)
+        admin = User.objects.create(username='mw-admin', role=User.Roles.ADMIN,
+                                    is_staff=True, is_superuser=True)
+        admin.set_password(PASSWORD)
+        admin.save()
+
+    def setUp(self):
+        self.client.login(username='mw-admin', password=PASSWORD)
+
+    def _punch(self, log_type, emp=None):
+        return self.client.post(reverse('webportal:manual_attendance'), {
+            'employee': (emp or self.ft).id, 'log_type': log_type})
+
+    def _recorded(self, log_type):
+        return AttendanceLog.objects.filter(log_type=log_type).exists()
+
+    def test_am_in_is_closed_after_the_morning_ends(self):
+        frozen_clock(self, 12, 40)
+        resp = self._punch('AM_IN')
+        self.assertContains(resp, 'AM_IN is closed: the morning session ended at 12:00 PM.')
+        self.assertFalse(self._recorded('AM_IN'))
+        self._punch('PM_IN')                       # the afternoon is still open
+        self.assertTrue(self._recorded('PM_IN'))
+
+    def test_am_in_at_exactly_time_out_is_closed(self):
+        frozen_clock(self, 12, 0)
+        self._punch('AM_IN')
+        self.assertFalse(self._recorded('AM_IN'))
+
+    def test_pm_in_is_closed_after_the_afternoon_ends(self):
+        frozen_clock(self, 17, 5)
+        resp = self._punch('PM_IN')
+        self.assertContains(resp, 'PM_IN is closed: the afternoon session ended at 5:00 PM.')
+        self.assertFalse(self._recorded('PM_IN'))
+
+    def test_outs_are_not_open_before_their_session_starts(self):
+        frozen_clock(self, 7, 30)
+        resp = self._punch('AM_OUT')
+        self.assertContains(resp, 'AM_OUT is not open yet: the morning session starts at 8:00 AM.')
+        resp = self._punch('PM_OUT')
+        self.assertContains(resp, 'PM_OUT is not open yet: the afternoon session starts at 1:00 PM.')
+        self.assertFalse(AttendanceLog.objects.exists())
+        self._punch('AM_IN')                       # early arrival is fine
+        self.assertTrue(self._recorded('AM_IN'))
+
+    def test_am_out_closes_when_the_afternoon_starts(self):
+        frozen_clock(self, 12, 59)
+        self._punch('AM_OUT')                      # still lunch: fine
+        self.assertTrue(self._recorded('AM_OUT'))
+        AttendanceLog.objects.all().delete()
+        frozen_clock(self, 13, 0)
+        resp = self._punch('AM_OUT')
+        self.assertContains(resp, 'AM_OUT is closed: the afternoon session started at 1:00 PM.')
+        self.assertFalse(self._recorded('AM_OUT'))
+
+    def test_pm_in_opens_at_the_midpoint(self):
+        frozen_clock(self, 9, 0)
+        resp = self._punch('PM_IN')
+        self.assertContains(resp, 'PM_IN is not open yet: it opens at the midpoint, 12:30 PM.')
+        frozen_clock(self, 12, 29)
+        self._punch('PM_IN')
+        self.assertFalse(self._recorded('PM_IN'))
+        frozen_clock(self, 12, 30)
+        self._punch('PM_IN')
+        self.assertTrue(self._recorded('PM_IN'))
+
+    def test_outs_open_once_their_session_starts(self):
+        frozen_clock(self, 13, 0)
+        self._punch('PM_OUT')
+        self.assertTrue(self._recorded('PM_OUT'))
+
+    def test_the_employees_own_schedule_is_used(self):
+        EmployeeSchedule.objects.create(employee=self.ft, am_out=time(11, 0))
+        frozen_clock(self, 11, 30)
+        resp = self._punch('AM_IN')
+        self.assertContains(resp, 'the morning session ended at 11:00 AM.')
+
+    def test_part_timers_have_no_window(self):
+        frozen_clock(self, 21, 0)
+        self._punch('IN', emp=self.pt)
+        self.assertTrue(self._recorded('IN'))
+
+    def test_terminal_gets_schedules_and_the_server_clock(self):
+        frozen_clock(self, 9, 15)
+        html = self.client.get(reverse('webportal:manual_attendance')).content.decode()
+        self.assertIn('"sched": {"am_in": 480, "am_out": 720, "pm_in": 780, "pm_out": 1020, '
+                      '"midpoint": 750}', html)
+        moment = datetime.combine(timezone.localdate(), time(9, 15))
+        self.assertIn(f'SERVER_MS = {int((moment - datetime(1970, 1, 1)).total_seconds() * 1000)}', html)

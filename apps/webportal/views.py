@@ -1398,17 +1398,34 @@ def overtime_revoke(request, pk):
 # ---------------------------------------------------------------------------
 # Manual attendance (brownout fallback) — strictly ADMIN
 # ---------------------------------------------------------------------------
+def _minutes(t):
+    return t.hour * 60 + t.minute
+
+
 def _manual_context(form, result):
-    emps = Employee.objects.filter(is_active=True).order_by('first_name', 'last_name')
-    data = [{
-        'id': e.id, 'name': e.full_name, 'no': e.employee_no,
-        'ft': e.is_fulltime, 'initials': e.initials, 'color': e.avatar_color,
-        'photo': e.photo.url if e.photo else '',
-    } for e in emps]
+    emps = (Employee.objects.filter(is_active=True).select_related('schedule_override')
+            .order_by('first_name', 'last_name'))
+    data = []
+    for e in emps:
+        row = {'id': e.id, 'name': e.full_name, 'no': e.employee_no,
+               'ft': e.is_fulltime, 'initials': e.initials, 'color': e.avatar_color,
+               'photo': e.photo.url if e.photo else ''}
+        if e.is_fulltime:
+            # Minutes since midnight, so the terminal can open/close AM/PM
+            # In and Out by the employee's own schedule.
+            s = get_effective_schedule(e)
+            row['sched'] = {'am_in': _minutes(s.am_in), 'am_out': _minutes(s.am_out),
+                            'pm_in': _minutes(s.pm_in), 'pm_out': _minutes(s.pm_out),
+                            'midpoint': _minutes(s.midpoint)}
+        data.append(row)
     recent = (AttendanceLog.objects.select_related('employee')
               .order_by('-log_datetime')[:8])
+    # The server's local wall clock as if it were UTC: the terminal's clock and
+    # its open/closed rules follow the server, not the browser's own clock.
+    local_now = timezone.localtime(trusted_now()).replace(tzinfo=None)
+    server_ms = int((local_now - datetime(1970, 1, 1)).total_seconds() * 1000)
     return {'form': form, 'result': result, 'employees_data': data,
-            'recent_punches': recent}
+            'recent_punches': recent, 'server_ms': server_ms}
 
 
 @admin_required
