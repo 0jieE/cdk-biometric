@@ -34,6 +34,7 @@ DAY_HALF = 'HALF_DAY'
 DAY_ABSENT = 'ABSENT'
 DAY_PENDING = 'PENDING'   # today, time out not reached yet - not judged
 DAY_INCOMPLETE = 'INCOMPLETE'   # part-time: one of IN/OUT missing -> 0 hours
+HOLIDAY_OFF = '(holiday)'   # ends the `event` of a holiday off credited present
 
 
 def _reduce_logs(logs):
@@ -97,15 +98,18 @@ def build_daily_attendance(employee, start: date_cls, end: date_cls) -> list[dic
         has_data = bool(day_logs) or any(k[0] == day for k in absences) or any(
             k[0] == day for k in lates)
 
-        # A holiday normally needs no punch (and isn't shown at all, like a
-        # weekend) - unless the employee bridged an unauthorized absence onto
+        # A holiday needs no punch: a full-timer's holiday off is a paid day,
+        # credited present - unless they bridged an unauthorized absence onto
         # it (see process_day / holiday_requires_attendance), in which case it
         # counts as an ordinary workday, punches or not. An event day (special
-        # holiday, attendance required) always counts.
+        # holiday, attendance required) always counts. A holiday they scanned
+        # on is judged by its punches.
+        holiday_off = False
         if event_sessions:
             counts_as_workday = True
         elif holiday and not has_data:
-            counts_as_workday = holiday_requires_attendance(employee, sched, day, today=today)
+            counts_as_workday = True
+            holiday_off = not holiday_requires_attendance(employee, sched, day, today=today)
         else:
             counts_as_workday = holiday is None
 
@@ -120,6 +124,8 @@ def build_daily_attendance(employee, start: date_cls, end: date_cls) -> list[dic
                 rec = _fulltime_record(day, day_logs, lates, undertimes, overtime, sched)
                 if event_requirement_met(day_logs, event_sessions):
                     rec = _event_credit(rec, holiday)
+                elif holiday_off:
+                    rec = _credit_present(rec, f'{holiday.name} {HOLIDAY_OFF}')
                 records.append(rec)
             else:
                 records.append(_parttime_record(day, day_logs, sched))
@@ -181,16 +187,20 @@ def _fulltime_record(day, day_logs, lates, undertimes, overtime, sched) -> dict:
     }
 
 
-def _event_credit(rec, holiday) -> dict:
-    """The required session(s) of an event day were attended: the whole day
-    counts as present - nothing late, undertime or absent (process_day's rule)."""
+def _credit_present(rec, event) -> dict:
+    """The whole day counts as present - nothing late, undertime or absent -
+    with ``event`` saying why (process_day's rule)."""
     for s in ('am', 'pm'):
         rec[s].update(status=DAY_PRESENT, minutes_late=0, minutes_undertime=0,
                       minutes_absent=0)
     rec.update(day_status=DAY_PRESENT, late_minutes=0, undertime_minutes=0,
-               absent_minutes=0, lost_minutes=0,
-               event=f'{holiday.name} ({holiday.required_label} required)')
+               absent_minutes=0, lost_minutes=0, event=event)
     return rec
+
+
+def _event_credit(rec, holiday) -> dict:
+    """The required session(s) of an event day were attended."""
+    return _credit_present(rec, f'{holiday.name} ({holiday.required_label} required)')
 
 
 def _parttime_record(day, day_logs, sched) -> dict:

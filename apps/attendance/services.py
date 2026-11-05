@@ -410,7 +410,11 @@ def process_day(employee, target_date: date_cls, now=None) -> dict:
     elif holiday and not logs:
         today = timezone.localtime(now).date() if now else None
         if not holiday_requires_attendance(employee, sched, target_date, today=today):
-            return result  # exempt: no punch needed, nothing bridged against it
+            # A holiday off is a paid day: a full-timer is credited present, so
+            # the day counts (present + late + half + absent = workdays).
+            if employee.is_fulltime:
+                result['status'] = STATUS_PRESENT
+            return result  # nothing late/absent; nothing bridged against it
 
     if employee.is_fulltime:
         return _process_fulltime(employee, target_date, sched, logs, now)

@@ -127,8 +127,9 @@ class EventDayProcessingTests(_Base):
         Holiday.objects.create(date=WED, name='Regular', type=Holiday.Types.REGULAR)
         self._full_day(TUE)
         self._full_day(THU)
-        self.assertEqual(process_day(self.ft, WED)['status'], 'REST')
-        self.assertEqual(build_daily_attendance(self.ft, WED, WED), [])
+        self.assertEqual(process_day(self.ft, WED)['status'], 'PRESENT')   # a paid day off
+        rec, = build_daily_attendance(self.ft, WED, WED)
+        self.assertEqual((rec['day_status'], rec['event']), ('PRESENT', 'Regular (holiday)'))
 
 
 class HolidayModelAndFormTests(_Base):

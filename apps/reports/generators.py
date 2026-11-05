@@ -17,6 +17,7 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 
 from apps.api.selectors import (
+    HOLIDAY_OFF,
     WEEK_IN_PROGRESS,
     WEEK_MET,
     WEEK_SHORT,
@@ -162,6 +163,8 @@ def _attendance(params) -> dict:
     for rec in reversed(records):   # newest first
         head = [rec['date'].strftime('%b %d, %Y'), who]
         status = _STATUS_LABELS.get(rec['day_status'], rec['day_status'])
+        if rec.get('event'):          # holiday off / event day credited present
+            status = f"{status} · {rec['event']}"
         if fulltime:
             am, pm = rec['am'], rec['pm']
             rows.append(head + [
@@ -187,7 +190,11 @@ def _attendance(params) -> dict:
         absent_min, lost_min = total('absent_minutes'), total('lost_minutes')
         late_min, under_min, ot_min = (total('late_minutes'), total('undertime_minutes'),
                                        total('overtime_minutes'))
-        day_counts = [('Present', count('PRESENT')), ('Late', count('LATE')),
+        holidays_off = sum(1 for r in records if r.get('event', '').endswith(HOLIDAY_OFF))
+        present = count('PRESENT')
+        present_label = (f'{present} (incl. {holidays_off} holiday'
+                         f'{"" if holidays_off == 1 else "s"})' if holidays_off else present)
+        day_counts = [('Present', present_label), ('Late', count('LATE')),
                       ('Half day', count('HALF_DAY')), ('Absent', count('ABSENT'))]
         totals = ['TOTAL', '', '', '', '', '', days,
                   late_min, under_min, absent_min, lost_min, ot_min]

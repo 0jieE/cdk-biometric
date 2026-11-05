@@ -137,7 +137,8 @@
     var s = current && current.sched;
     if (!s) return null;   /* part-timers and OT punches have no session window */
     var now = nowMinutes();
-    if (key === 'AM_IN'  && now >= s.am_out) return 'Closed · the morning ended at ' + fmtMinutes(s.am_out);
+    var amEnd = Math.min(s.am_out, s.midpoint);   /* past the midpoint a scan is never morning */
+    if (key === 'AM_IN'  && now >= amEnd)    return 'Closed · the morning ended at ' + fmtMinutes(amEnd);
     if (key === 'PM_IN'  && now >= s.pm_out) return 'Closed · the afternoon ended at ' + fmtMinutes(s.pm_out);
     if (key === 'AM_OUT' && now < s.am_in)   return 'Opens at ' + fmtMinutes(s.am_in);
     if (key === 'AM_OUT' && now >= s.pm_in) return 'Closed · the afternoon started at ' + fmtMinutes(s.pm_in);

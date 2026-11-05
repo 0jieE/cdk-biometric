@@ -115,11 +115,12 @@ class HolidayRequiresAttendanceTests(_Base):
 
 
 class ProcessDayHolidayTests(_Base):
-    def test_no_punch_and_bridged_is_exempt_rest(self):
+    def test_no_punch_and_present_both_sides_is_a_paid_day_off(self):
+        # A holiday off counts as present, so the days add up to the workdays.
         self._punch(MON)
         self._punch(WED)
         result = process_day(self.emp, TUE, now=at(time(9, 0), THU))
-        self.assertEqual(result['status'], 'REST')
+        self.assertEqual(result['status'], 'PRESENT')
         self.assertFalse(Absence.objects.filter(date=TUE).exists())
 
     def test_no_punch_and_not_bridged_is_absent(self):
@@ -167,14 +168,34 @@ class ProcessDayHolidayTests(_Base):
 
 
 class BuildDailyAttendanceHolidayTests(_Base):
-    def test_exempt_holiday_is_hidden_like_a_weekend(self):
+    def test_holiday_off_is_credited_present(self):
         self._punch(MON)
         self._punch(WED)
         process_day(self.emp, MON)
         process_day(self.emp, WED)
         with patch('apps.api.selectors.trusted_localdate', return_value=THU):
             recs = build_daily_attendance(self.emp, TUE, TUE)
-        self.assertEqual(recs, [])
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual((rec['day_status'], rec['lost_minutes'], rec['absent_minutes']),
+                         ('PRESENT', 0, 0))
+        self.assertEqual(rec['event'], f'{Holiday.objects.get(date=TUE).name} (holiday)')
+
+    def test_holiday_on_a_rest_day_is_still_not_shown(self):
+        Holiday.objects.create(date=SAT, name='Saturday holiday')
+        self._punch(date(2026, 7, 10))
+        with patch('apps.api.selectors.trusted_localdate', return_value=date(2026, 7, 13)):
+            self.assertEqual(build_daily_attendance(self.emp, SAT, SAT), [])
+
+    def test_monthly_counts_add_up_to_the_workdays(self):
+        # Mon present, Tue holiday off, Wed present -> 3 present days, 0 absent.
+        for d in (MON, WED):
+            for log_type, t in (('AM_IN', time(8, 0)), ('AM_OUT', time(12, 0)),
+                                ('PM_IN', time(13, 0)), ('PM_OUT', time(17, 0))):
+                self._punch(d, log_type, t)
+        with patch('apps.api.selectors.trusted_localdate', return_value=WED):
+            recs = build_daily_attendance(self.emp, MON, WED)
+        self.assertEqual([r['day_status'] for r in recs], ['PRESENT'] * 3)
 
     def test_bridging_failure_shows_absent(self):
         # Absences are only inferred once the system has started recording

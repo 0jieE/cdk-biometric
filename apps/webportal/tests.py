@@ -380,6 +380,30 @@ class ScheduleMidpointFormTests(TestCase):
         self.assertContains(resp, 'Must fall between')
         self.assertEqual(GlobalSchedule.load().midpoint, time(12, 30))
 
+    def test_midpoint_must_be_in_the_lunch_break(self):
+        resp = self._post('11:00')                    # before the AM time out
+        self.assertContains(resp, 'Must fall between the AM time out (12:00 PM) '
+                                  'and the PM time in (1:00 PM).')
+
+    def test_am_time_out_in_the_evening_is_rejected(self):
+        # e.g. 23:30 typed for 11:30 AM.
+        self.client.login(username='admin3', password=PASSWORD)
+        resp = self.client.post(reverse('webportal:schedule'), {
+            'am_in': '07:30', 'am_out': '23:30', 'pm_in': '13:00', 'pm_out': '17:00',
+            'midpoint': '12:30', 'grace_period_minutes': 5, 'workdays': [0, 1, 2, 3, 4]})
+        self.assertContains(resp, 'Must be at or after the AM time out (11:30 PM).')
+        self.assertEqual(GlobalSchedule.load().am_out, time(12, 0))
+
+    def test_an_override_is_checked_with_the_times_it_inherits(self):
+        dept = Department.objects.create(name='IT', code='IT')
+        emp = Employee.objects.create(employee_no='SO-1', first_name='Sched', last_name='Order',
+                                      department=dept, biometric_id='9801')
+        self.client.login(username='admin3', password=PASSWORD)
+        resp = self.client.post(reverse('webportal:employee_schedule', args=[emp.pk]),
+                                {'am_out': '14:00'})       # after the global 1:00 PM PM in
+        self.assertContains(resp, 'Must be at or after the AM time out (2:00 PM).')
+        self.assertFalse(EmployeeSchedule.objects.filter(employee=emp, am_out=time(14, 0)).exists())
+
 
 class DeviceTestConnectionTests(TestCase):
     """The per-device "Test connection" button must check THAT device's own
@@ -1013,6 +1037,14 @@ class ManualSessionWindowTests(TestCase):
         frozen_clock(self, 11, 30)
         resp = self._punch('AM_IN')
         self.assertContains(resp, 'the morning session ended at 11:00 AM.')
+
+    def test_am_in_never_outlasts_the_midpoint(self):
+        # A bad saved schedule (AM time out 11:30 PM) can't keep AM In open.
+        GlobalSchedule.objects.filter(pk=1).update(am_out=time(23, 30))
+        frozen_clock(self, 15, 52)
+        resp = self._punch('AM_IN')
+        self.assertContains(resp, 'AM_IN is closed: the morning session ended at 12:30 PM.')
+        self.assertFalse(self._recorded('AM_IN'))
 
     def test_part_timers_have_no_window(self):
         frozen_clock(self, 21, 0)

@@ -190,8 +190,19 @@
             <div><span class="badge-status s-neutral">IN PROGRESS</span> Today, and the session hasn't ended yet. Nothing is judged until it ends.</div>
             <div><span class="badge-status s-half">INCOMPLETE</span> Part-time only: a single scan, so 0 hours for that day.</div>
           </div>
-          <p class="small text-muted mt-3 mb-0">Days that aren't workdays (rest days) and holidays have no status and
-            count for nothing, unless a holiday rule below says otherwise.</p>
+          <h6 class="hiw-h">Rest days and holidays</h6>
+          <p class="mb-2">Days that aren't workdays (rest days) have no status and count for nothing. A holiday
+            on a workday <b>always counts</b>, so Present + Late + Half day + Absent adds up to the workdays
+            (see <a href="#holidays">Holidays</a>):</p>
+          <ul class="hiw-list mb-0">
+            <li><span class="badge-status s-present">PRESENT</span> A holiday off is a paid day: it counts as
+              present, shown with the holiday's name.</li>
+            <li><span class="badge-status s-absent">ABSENT</span> The employee had no scan on the nearest workday
+              before or after it, so the holiday counts as absent instead, with its full lost time.</li>
+            <li><span class="badge-status s-present">PRESENT</span> A Special holiday with attendance required, and
+              they completed the required session(s). If not, the day is judged like a normal workday.</li>
+            <li>Any status: they scanned on the holiday anyway, so it is judged like a normal workday.</li>
+          </ul>
         </div>
       </section>
 
@@ -294,8 +305,9 @@
         <div class="card-head"><span><i class="bi bi-calendar-event me-1"></i> Holidays</span></div>
         <div class="card-pad">
           <p>Holidays are set on the <a href="{% url 'webportal:holidays' %}">Holidays</a> page. Both
-            <b>Regular</b> and <b>Special</b> holidays are days off: no scan is needed and nobody is marked
-            absent. A <b>recurring</b> holiday repeats on the same date every year. Adding, editing or deleting a
+            <b>Regular</b> and <b>Special</b> holidays are paid days off: no scan is needed, and a full-timer
+            is counted <b>present</b> for the day, shown with the holiday's name. In reports the Present count says how
+            many were holidays, e.g. "21 (incl. 1 holiday)". A <b>recurring</b> holiday repeats on the same date every year. Adding, editing or deleting a
             holiday re-calculates that date for everyone.</p>
 
           <h6 class="hiw-h">The day-before / day-after rule</h6>

@@ -133,6 +133,28 @@ class _WorkdaysMixin:
         return sorted(int(v) for v in values)
 
 
+def check_schedule_order(form, times):
+    """AM in < AM out <= midpoint <= PM in < PM out - the order every rule
+    relies on (sorting scans, lunch, the Punch Terminal's windows). ``times``
+    maps each field to its effective value; errors go on ``form``'s fields."""
+    def fmt(t):
+        return t.strftime('%I:%M %p').lstrip('0')
+
+    am_in, am_out, mid, pm_in, pm_out = (
+        times.get(f) for f in ('am_in', 'am_out', 'midpoint', 'pm_in', 'pm_out'))
+    if None in (am_in, am_out, mid, pm_in, pm_out):
+        return
+    if not am_in < am_out:
+        form.add_error('am_out', f'Must be after the AM time in ({fmt(am_in)}).')
+    elif not am_out <= pm_in:
+        form.add_error('pm_in', f'Must be at or after the AM time out ({fmt(am_out)}).')
+    elif not pm_in < pm_out:
+        form.add_error('pm_out', f'Must be after the PM time in ({fmt(pm_in)}).')
+    elif not am_out <= mid <= pm_in:
+        form.add_error('midpoint', f'Must fall between the AM time out ({fmt(am_out)}) '
+                                   f'and the PM time in ({fmt(pm_in)}).')
+
+
 class GlobalScheduleForm(_WorkdaysMixin, BootstrapMixin, forms.ModelForm):
     workdays = None  # replaced in __init__
 
@@ -155,9 +177,7 @@ class GlobalScheduleForm(_WorkdaysMixin, BootstrapMixin, forms.ModelForm):
 
     def clean(self):
         data = super().clean()
-        mid, start, end = data.get('midpoint'), data.get('am_in'), data.get('pm_out')
-        if mid and start and end and not (start < mid < end):
-            self.add_error('midpoint', 'Must fall between the AM time in and the PM time out.')
+        check_schedule_order(self, data)
         return data
 
 
@@ -179,6 +199,15 @@ class EmployeeScheduleForm(_WorkdaysMixin, BootstrapMixin, forms.ModelForm):
         self.fields['workdays'] = self._build_workdays_field(required=False)
         if self.instance and self.instance.pk and self.instance.workdays:
             self.fields['workdays'].initial = self.instance.workdays
+
+    def clean(self):
+        data = super().clean()
+        # Blank fields inherit the global schedule, so check what will apply.
+        g = GlobalSchedule.load()
+        check_schedule_order(self, {
+            f: data.get(f) or getattr(g, f)
+            for f in ('am_in', 'am_out', 'midpoint', 'pm_in', 'pm_out')})
+        return data
 
 
 class ParttimeDefaultHoursForm(BootstrapMixin, forms.ModelForm):
@@ -305,6 +334,10 @@ class ManualAttendanceForm(forms.Form):
         session = 'morning' if log_type.startswith('AM') else 'afternoon'
         sched_in = sched.am_in if session == 'morning' else sched.pm_in
         sched_out = sched.am_out if session == 'morning' else sched.pm_out
+        if session == 'morning':
+            # A scan after the midpoint is never morning, so AM In can't
+            # outlast it - even if the AM time out were set later by mistake.
+            sched_out = min(sched_out, sched.midpoint)
 
         def fmt(t):
             return t.strftime('%I:%M %p').lstrip('0')
