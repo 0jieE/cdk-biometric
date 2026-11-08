@@ -123,6 +123,34 @@ class SeedDataTests(TestCase):
              Employee.objects.count()), counts)
 
 
+    def test_reseeding_keeps_the_admins_global_schedule(self):
+        # seed_data runs on every container start / PC reboot; it must not put
+        # the global schedule back to its 8-12 / 1-5 defaults.
+        self._seed()
+        g = GlobalSchedule.load()
+        g.am_in, g.am_out = time(7, 30), time(11, 30)
+        g.pm_in, g.pm_out, g.midpoint = time(12, 30), time(16, 30), time(12, 0)
+        g.grace_period_minutes, g.workdays = 15, [0, 1, 2, 3, 4, 5]
+        g.save()
+        self._seed()
+        g = GlobalSchedule.load()
+        self.assertEqual((g.am_in, g.am_out, g.pm_in, g.pm_out, g.midpoint),
+                         (time(7, 30), time(11, 30), time(12, 30), time(16, 30), time(12, 0)))
+        self.assertEqual(g.grace_period_minutes, 15)
+        self.assertEqual(g.workdays, [0, 1, 2, 3, 4, 5])
+
+    def test_first_seed_creates_the_default_schedule(self):
+        GlobalSchedule.objects.all().delete()
+        self._seed()
+        g = GlobalSchedule.load()
+        self.assertEqual((g.am_in, g.pm_out), (time(8, 0), time(17, 0)))
+
+    def test_reseeding_keeps_an_employees_changed_type(self):
+        self._seed()
+        Employee.objects.filter(employee_no='EMP-1007').update(is_fulltime=True)
+        self._seed()
+        self.assertTrue(Employee.objects.get(employee_no='EMP-1007').is_fulltime)
+
 class CleanupSeedArtifactsTests(TestCase):
     @classmethod
     def setUpTestData(cls):

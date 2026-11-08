@@ -64,13 +64,15 @@ class Command(BaseCommand):
         created = {'departments': 0, 'employees': 0, 'users': 0,
                    'overrides': 0, 'holidays': 0, 'devices': 0}
 
-        # Global schedule (institution default).
-        schedule = GlobalSchedule.load()
-        schedule.am_in, schedule.am_out = time(8, 0), time(12, 0)
-        schedule.pm_in, schedule.pm_out = time(13, 0), time(17, 0)
-        schedule.grace_period_minutes = 5
-        schedule.workdays = MON_FRI
-        schedule.save()
+        # Global schedule (institution default) - a first-boot value only. This
+        # runs on every container start, so it must never overwrite what the
+        # admin saved on the Schedule page.
+        if not GlobalSchedule.objects.filter(pk=1).exists():
+            GlobalSchedule(
+                am_in=time(8, 0), am_out=time(12, 0),
+                pm_in=time(13, 0), pm_out=time(17, 0),
+                grace_period_minutes=5, workdays=MON_FRI,
+            ).save()
 
         # Departments
         dept_by_code = {}
@@ -91,10 +93,6 @@ class Command(BaseCommand):
                     'is_active': True, 'is_fulltime': e['fulltime'],
                 },
             )
-            # Keep is_fulltime in sync on re-seed.
-            if emp.is_fulltime != e['fulltime']:
-                emp.is_fulltime = e['fulltime']
-                emp.save(update_fields=['is_fulltime'])
             created['employees'] += int(emp_created)
 
             if e.get('saturday'):
