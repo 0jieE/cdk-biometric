@@ -459,7 +459,13 @@ div.dt-buttons .dt-button:hover { background: var(--brand); color: #fff; }
 table.dataTable > tbody > tr.child ul.dtr-details > li { border-bottom: 1px solid var(--line); }
 
 /* ------------------------------------------------------------- login ------ */
-.login-wrap { min-height: 100vh; display: grid; place-items: center; background: var(--brand-grad); padding: 20px; }
+/* Campus photo under a purple wash, so the white card stays the focus. */
+.login-wrap {
+  min-height: 100vh; display: grid; place-items: center; padding: 20px;
+  background:
+    linear-gradient(135deg, rgba(59, 22, 120, .78), rgba(109, 40, 217, .42)),
+    url('../img/campus.jpg') center / cover no-repeat fixed;
+}
 .login-card { width: 100%; max-width: 400px; background: #fff; border-radius: 22px; box-shadow: var(--shadow-lg); overflow: hidden; }
 .login-hero { background: var(--brand-grad); padding: 28px 24px 22px; text-align: center; color: #fff; }
 .login-hero img { width: 66px; height: 66px; border-radius: 16px; background: #fff; padding: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
@@ -477,12 +483,16 @@ table.dataTable > tbody > tr.child ul.dtr-details > li { border-bottom: 1px soli
   --k-line:   #E4DEF4;
   --k-purple: #6D28D9;
 
-  min-height: 100vh; color: var(--k-ink); background: #F1EDFB;
-  background-image: radial-gradient(1200px 620px at 6% -12%, rgba(109,40,217,.16), transparent 60%);
-  background-attachment: fixed;
+  min-height: 100vh; color: var(--k-ink); background-color: #F1EDFB;
+  /* Campus photo, as-is; the panels are near-opaque white so they stay readable. */
+  background-image: url('../img/campus.jpg');
+  background-size: cover; background-position: center; background-attachment: fixed;
   font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
-.kiosk-head { display: flex; align-items: center; gap: 16px; padding: 18px 30px; border-bottom: 1px solid var(--k-line); }
+.kiosk-head {
+  display: flex; align-items: center; gap: 16px; padding: 18px 30px; border-bottom: 1px solid var(--k-line);
+  background: rgba(255,255,255,.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
 .kiosk-head img { width: 50px; height: 50px; border-radius: 13px; background: #fff; padding: 5px; box-shadow: 0 2px 10px rgba(109,40,217,.14); }
 .kiosk-head h1 { margin: 0; color: var(--k-ink); font-family: 'Poppins', sans-serif; font-size: 22px; font-weight: 700; }
 .kiosk-head .sub { color: var(--k-muted); font-size: 13px; }
@@ -499,8 +509,9 @@ table.dataTable > tbody > tr.child ul.dtr-details > li { border-bottom: 1px soli
   display: grid; grid-template-columns: minmax(0, 460px) minmax(0, 1fr); gap: 24px; align-items: start;
 }
 .k-panel {
-  background: #FFFFFF; border: 1px solid var(--k-line); border-radius: 22px; overflow: hidden;
-  box-shadow: 0 10px 30px rgba(76, 40, 130, .08);
+  background: rgba(255,255,255,.92); border: 1px solid var(--k-line); border-radius: 22px; overflow: hidden;
+  box-shadow: 0 10px 30px rgba(76, 40, 130, .14);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
 
 /* clock */
