@@ -69,7 +69,7 @@ class Command(BaseCommand):
         # admin saved on the Schedule page.
         if not GlobalSchedule.objects.filter(pk=1).exists():
             GlobalSchedule(
-                am_in=time(8, 0), am_out=time(12, 0),
+                am_in=time(7, 30), am_out=time(11, 30),
                 pm_in=time(13, 0), pm_out=time(17, 0),
                 grace_period_minutes=5, workdays=MON_FRI,
             ).save()

@@ -113,8 +113,8 @@ class Employee(TimeStampedModel):
 class GlobalSchedule(TimeStampedModel):
     """Institution-wide default work schedule. Enforced single row (pk=1)."""
 
-    am_in = models.TimeField(default=time(8, 0))
-    am_out = models.TimeField(default=time(12, 0))
+    am_in = models.TimeField(default=time(7, 30))
+    am_out = models.TimeField(default=time(11, 30))
     pm_in = models.TimeField(default=time(13, 0))
     pm_out = models.TimeField(default=time(17, 0))
     # Punches at/before this are AM, after it PM (unless past a session's time out).

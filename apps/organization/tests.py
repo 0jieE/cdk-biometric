@@ -144,7 +144,8 @@ class SeedDataTests(TestCase):
         GlobalSchedule.objects.all().delete()
         self._seed()
         g = GlobalSchedule.load()
-        self.assertEqual((g.am_in, g.pm_out), (time(8, 0), time(17, 0)))
+        self.assertEqual((g.am_in, g.am_out, g.pm_in, g.pm_out, g.midpoint),
+                         (time(7, 30), time(11, 30), time(13, 0), time(17, 0), time(12, 30)))
 
     def test_reseeding_keeps_an_employees_changed_type(self):
         self._seed()
