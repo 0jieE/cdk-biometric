@@ -102,8 +102,9 @@
   /* live clock — the SERVER's time (punches are stamped with it), not this
      browser's. SERVER_MS is the server's local wall clock encoded as UTC, so
      it is read back with the getUTC* methods. */
-  var SERVER_MS = {{ server_ms }}, LOADED = Date.now();
-  function serverNow() { return new Date(SERVER_MS + Date.now() - LOADED); }
+  // performance.now(), not Date.now(): it can't jump if this PC's clock is changed.
+  var SERVER_MS = {{ server_ms }}, LOADED = performance.now();
+  function serverNow() { return new Date(SERVER_MS + performance.now() - LOADED); }
   function nowMinutes() { var n = serverNow(); return n.getUTCHours() * 60 + n.getUTCMinutes(); }
   function p(x){ return (x<10?'0':'')+x; }
   function fmtMinutes(m) {

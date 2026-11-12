@@ -67,7 +67,9 @@
             <li>If the system was offline, the device keeps the scans in its memory. When the system is back,
               the sync brings in the last 24 hours, and the days it missed are worked out automatically.</li>
             <li>The system checks its own clock against an internet time source and corrects any drift, so a
-              wrong server clock can't make someone late.</li>
+              wrong server clock can't make someone late. After a good check it keeps time on its own,
+              so changing the PC's date or time has no effect - even with no internet. Only after the PC
+              restarts does it need the internet again to re-check.</li>
             <li>An employee is only judged from the day they were added to the system (or their hire date, if
               later). Days before that are never counted as absent.</li>
           </ul>

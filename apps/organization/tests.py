@@ -1,6 +1,7 @@
 """Schedule resolver tests."""
 
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from io import StringIO
 
 from django.contrib.auth import get_user_model
@@ -256,6 +257,60 @@ class TrustedTimeTests(TestCase):
         delta = (trusted_now() - timezone.now()).total_seconds()
         self.assertLess(abs(delta), 1)
 
+
+class TrustedTimeAnchorTests(TestCase):
+    """After a good online check the system keeps time on the machine's uptime
+    clock, so changing the PC's date/time doesn't move it - online or not."""
+
+    TT = 'apps.organization.trusted_time'
+
+    def _sync(self, online, uptime, boot='boot-1', wall=None):
+        from email.utils import format_datetime
+        from unittest.mock import Mock, patch
+        from apps.organization.trusted_time import refresh_offset
+        resp = Mock()
+        resp.headers = {'Date': format_datetime(online, usegmt=True)}
+        with patch('requests.head', return_value=resp),                 patch(f'{self.TT}.timezone.now', return_value=wall or online),                 patch(f'{self.TT}._uptime', return_value=uptime),                 patch(f'{self.TT}._boot_id', return_value=boot):
+            self.assertTrue(refresh_offset())
+
+    def _now(self, wall, uptime, boot='boot-1'):
+        from unittest.mock import patch
+        from apps.organization.trusted_time import trusted_now
+        with patch(f'{self.TT}.timezone.now', return_value=wall),                 patch(f'{self.TT}._uptime', return_value=uptime),                 patch(f'{self.TT}._boot_id', return_value=boot):
+            return trusted_now()
+
+    REAL = datetime(2026, 11, 12, 1, 0, tzinfo=dt_timezone.utc)   # 9:00 AM Manila
+
+    def test_changing_the_pc_clock_does_not_move_trusted_time(self):
+        self._sync(self.REAL, uptime=1000)
+        # One minute later someone sets the PC clock back two hours.
+        wall = self.REAL + timedelta(minutes=1) - timedelta(hours=2)
+        self.assertEqual(self._now(wall, uptime=1060), self.REAL + timedelta(minutes=1))
+        # ...or forward a day.
+        wall = self.REAL + timedelta(days=1)
+        self.assertEqual(self._now(wall, uptime=1120), self.REAL + timedelta(minutes=2))
+
+    def test_it_holds_while_offline(self):
+        from unittest.mock import patch
+        from apps.organization.trusted_time import refresh_offset
+        self._sync(self.REAL, uptime=1000)
+        with patch('requests.head', side_effect=ConnectionError('offline')):
+            self.assertFalse(refresh_offset())
+        wall = self.REAL - timedelta(hours=3)
+        self.assertEqual(self._now(wall, uptime=4600), self.REAL + timedelta(hours=1))
+
+    def test_after_a_reboot_it_falls_back_to_the_measured_offset(self):
+        self._sync(self.REAL, uptime=1000)           # server clock was exact (offset ~0)
+        wall = self.REAL + timedelta(hours=5)
+        got = self._now(wall, uptime=30, boot='boot-2')
+        self.assertLess(abs((got - wall).total_seconds()), 5)
+
+    def test_the_anchor_is_saved_on_a_good_check(self):
+        self._sync(self.REAL, uptime=1234.5)
+        sync = TimeSync.load()
+        self.assertEqual(sync.anchor_utc, self.REAL)
+        self.assertEqual(sync.anchor_uptime, 1234.5)
+        self.assertEqual(sync.anchor_boot_id, 'boot-1')
 
 class SyncTimeCommandTests(TestCase):
     def test_reports_success(self):

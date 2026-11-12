@@ -232,6 +232,14 @@ class TimeSync(TimeStampedModel):
     last_synced_at = models.DateTimeField(null=True, blank=True)
     last_sync_ok = models.BooleanField(default=False)
 
+    # Anchor of the last good check: the real time it returned, and the
+    # machine's uptime clock at that moment. While the machine hasn't rebooted
+    # (same boot id), "now" is the anchor plus elapsed uptime, which a change
+    # of the PC's wall clock can't move. See trusted_time.trusted_now().
+    anchor_utc = models.DateTimeField(null=True, blank=True)
+    anchor_uptime = models.FloatField(null=True, blank=True)
+    anchor_boot_id = models.CharField(max_length=64, blank=True)
+
     class Meta:
         verbose_name = 'Time Sync'
         verbose_name_plural = 'Time Sync'

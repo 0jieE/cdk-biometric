@@ -46,12 +46,14 @@
           a = document.getElementById('k-ampm'),
           d = document.getElementById('k-date');
       function p(x) { return (x < 10 ? '0' : '') + x; }
+      // The system's (server's) time, not this screen's own clock.
+      var SERVER_MS = {{ server_ms }}, T0 = performance.now();
       function tick() {
-        var n = new Date(), h = n.getHours();
-        t.textContent = p(h % 12 || 12) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds());
+        var n = new Date(SERVER_MS + performance.now() - T0), h = n.getUTCHours();
+        t.textContent = p(h % 12 || 12) + ':' + p(n.getUTCMinutes()) + ':' + p(n.getUTCSeconds());
         a.textContent = h >= 12 ? 'PM' : 'AM';
         d.textContent = n.toLocaleDateString(undefined,
-          { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+          { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
       }
       tick(); setInterval(tick, 1000);
     })();

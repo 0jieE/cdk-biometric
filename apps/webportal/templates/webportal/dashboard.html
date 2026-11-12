@@ -243,12 +243,14 @@
 (function () {
   var t = document.getElementById('dash-time'), d = document.getElementById('dash-date');
   if (!t) return;
+  // The system's (server's) time, not this PC's: see views._server_ms.
+  var SERVER_MS = {{ server_ms }}, T0 = performance.now();
   function tick() {
-    var n = new Date();
+    var n = new Date(SERVER_MS + performance.now() - T0);
     function p(x) { return (x < 10 ? '0' : '') + x; }
-    var h = n.getHours(), ap = h >= 12 ? 'PM' : 'AM', h12 = h % 12 || 12;
-    t.textContent = p(h12) + ':' + p(n.getMinutes()) + ':' + p(n.getSeconds()) + ' ' + ap;
-    d.textContent = n.toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+    var h = n.getUTCHours(), ap = h >= 12 ? 'PM' : 'AM', h12 = h % 12 || 12;
+    t.textContent = p(h12) + ':' + p(n.getUTCMinutes()) + ':' + p(n.getUTCSeconds()) + ' ' + ap;
+    d.textContent = n.toLocaleDateString(undefined, {weekday:'long', year:'numeric', month:'long', day:'numeric', timeZone:'UTC'});
   }
   tick(); setInterval(tick, 1000);
 })();

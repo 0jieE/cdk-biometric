@@ -152,6 +152,7 @@ def dashboard(request):
         'gridlines': gridlines,
         'top_lost': _top_lost_employees(month_start, today, 5),
         'range_label': f'{month_start.strftime("%b %d")} – {today.strftime("%b %d")}',
+        'server_ms': _server_ms(),  # the clock shows the system's time
 
         # Weather (Open-Meteo, client-side)
         'weather_lat': getattr(settings, 'WEATHER_LAT', 7.00833),
@@ -1415,12 +1416,17 @@ def _manual_context(form, result):
         data.append(row)
     recent = (AttendanceLog.objects.select_related('employee')
               .order_by('-log_datetime')[:8])
-    # The server's local wall clock as if it were UTC: the terminal's clock and
-    # its open/closed rules follow the server, not the browser's own clock.
-    local_now = timezone.localtime(trusted_now()).replace(tzinfo=None)
-    server_ms = int((local_now - datetime(1970, 1, 1)).total_seconds() * 1000)
     return {'form': form, 'result': result, 'employees_data': data,
-            'recent_punches': recent, 'server_ms': server_ms}
+            'recent_punches': recent, 'server_ms': _server_ms()}
+
+
+def _server_ms() -> int:
+    """The server's trusted local wall clock, encoded as if it were UTC (ms).
+    On-screen clocks start from this and count with performance.now(), so they
+    show the system's time - not the browser's, and a change of the viewing
+    PC's clock can't alter them. Read it in JS with getUTC*()."""
+    local_now = timezone.localtime(trusted_now()).replace(tzinfo=None)
+    return int((local_now - datetime(1970, 1, 1)).total_seconds() * 1000)
 
 
 @admin_required
@@ -1466,7 +1472,7 @@ LIVE_FEED_LATEST = 10
 def live_logs(request):
     if not _live_enabled():
         raise Http404()
-    return render(request, 'webportal/live.html', {})
+    return render(request, 'webportal/live.html', {'server_ms': _server_ms()})
 
 
 def live_logs_feed(request):

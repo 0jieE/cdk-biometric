@@ -484,6 +484,34 @@ class DashboardDevicesCardTests(TestCase):
         self.assertNotContains(resp, 'id="deviceStatus"')
 
 
+class OnScreenClockTests(TestCase):
+    """The dashboard and Live Attendance clocks show the system's (trusted)
+    time, not the viewing PC's own clock."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = User.objects.create(username='admin_clock', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+    def _expected_ms(self, moment):
+        local = timezone.localtime(moment).replace(tzinfo=None)
+        return int((local - datetime(1970, 1, 1)).total_seconds() * 1000)
+
+    def test_dashboard_clock_starts_from_the_system_time(self):
+        self.client.login(username='admin_clock', password=PASSWORD)
+        moment = frozen_clock(self, 9, 15)
+        resp = self.client.get(reverse('webportal:dashboard'))
+        self.assertContains(resp, f'SERVER_MS = {self._expected_ms(moment)}')
+        self.assertContains(resp, 'getUTCHours()')
+
+    def test_live_clock_starts_from_the_system_time(self):
+        moment = frozen_clock(self, 14, 5)
+        resp = self.client.get(reverse('webportal:live'))
+        self.assertContains(resp, f'SERVER_MS = {self._expected_ms(moment)}')
+        self.assertNotContains(resp, 'var n = new Date(), h')
+
 class DeviceCardStatusTests(TestCase):
     """Each card on the Devices page shows whether THAT device is reachable,
     active or not."""

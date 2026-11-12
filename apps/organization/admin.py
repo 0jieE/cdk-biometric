@@ -61,7 +61,8 @@ class HolidayAdmin(admin.ModelAdmin):
 class TimeSyncAdmin(admin.ModelAdmin):
     """Read-only: refreshed automatically by the periodic attendance sync."""
     list_display = ('offset_seconds', 'last_synced_at', 'last_sync_ok')
-    readonly_fields = ('offset_seconds', 'last_synced_at', 'last_sync_ok')
+    readonly_fields = ('offset_seconds', 'last_synced_at', 'last_sync_ok',
+                       'anchor_utc', 'anchor_uptime', 'anchor_boot_id')
 
     def has_add_permission(self, request):
         return not TimeSync.objects.exists()
