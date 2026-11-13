@@ -118,8 +118,11 @@ def dashboard(request):
     day_start = timezone.make_aware(datetime.combine(today, time.min))
     day_end = day_start + timedelta(days=1)
 
+    # Totals count active employees only: a deactivated employee keeps their
+    # records but no longer counts anywhere (see _set_employee_active).
     present = (
         AttendanceLog.objects.filter(
+            employee__is_active=True,
             log_type__in=['AM_IN', 'PM_IN', 'IN'],
             log_datetime__gte=day_start, log_datetime__lt=day_end)
         .values('employee').distinct().count()
@@ -133,8 +136,8 @@ def dashboard(request):
     context = {
         'total_employees': Employee.objects.filter(is_active=True).count(),
         'present': present,
-        'late': Lates.objects.filter(date=today).count(),
-        'absent': Absence.objects.filter(date=today).count(),
+        'late': Lates.objects.filter(date=today, employee__is_active=True).count(),
+        'absent': Absence.objects.filter(date=today, employee__is_active=True).count(),
         'today': today,
 
         # Calendar (current month) + holidays
@@ -429,10 +432,12 @@ def _lost_time_by_employee(late_qs, under_qs, absence_qs):
 
 
 def _minutes_by(model, field, key, start, end):
-    """{key value: summed ``field``} for ``model`` rows dated in [start, end]."""
+    """{key value: summed ``field``} for active employees' ``model`` rows dated
+    in [start, end]."""
     # .order_by() keeps the GROUP BY to ``key`` alone (see _lost_time_by_employee).
     return {r[key]: r['m'] or 0 for r in
-            model.objects.filter(date__gte=start, date__lte=end).order_by()
+            model.objects.filter(date__gte=start, date__lte=end,
+                                 employee__is_active=True).order_by()
             .values(key).annotate(m=models.Sum(field))}
 
 
@@ -486,10 +491,11 @@ def lates(request):
     dept_id = request.GET.get('department') or None
 
     late_qs = Lates.objects.select_related('employee', 'employee__department').filter(
-        date__gte=start, date__lte=end).order_by('-date')
+        date__gte=start, date__lte=end, employee__is_active=True).order_by('-date')
     under_qs = Undertime.objects.select_related('employee', 'employee__department').filter(
-        date__gte=start, date__lte=end).order_by('-date')
-    absence_qs = Absence.objects.filter(date__gte=start, date__lte=end)
+        date__gte=start, date__lte=end, employee__is_active=True).order_by('-date')
+    absence_qs = Absence.objects.filter(date__gte=start, date__lte=end,
+                                        employee__is_active=True)
     if dept_id:
         late_qs = late_qs.filter(employee__department_id=dept_id)
         under_qs = under_qs.filter(employee__department_id=dept_id)
@@ -527,7 +533,7 @@ def absences(request):
     dept_id = request.GET.get('department') or None
 
     qs = Absence.objects.select_related('employee', 'employee__department').filter(
-        date__gte=start, date__lte=end).order_by('-date')
+        date__gte=start, date__lte=end, employee__is_active=True).order_by('-date')
     if dept_id:
         qs = qs.filter(employee__department_id=dept_id)
 
@@ -672,7 +678,9 @@ def _employee_performance(employee):
     lost_minutes = late_minutes + undertime_minutes + absent_minutes
 
     attendance_rate = round(attended / counted * 100) if counted else 0
-    punctuality_rate = round(present / (present + late) * 100) if (present + late) else 100
+    # On-time share of the days they came in. No such days -> None (shown as
+    # "-"): an employee who never came in is not "100% punctual".
+    punctuality_rate = round(present / (present + late) * 100) if (present + late) else None
 
     trend = []
     for (y, m) in _month_sequence(today, 6):
@@ -1368,7 +1376,8 @@ def overtime(request):
 
 
 def _overtime_context(request):
-    rows = list(OTAuthorization.objects.select_related('employee', 'approved_by').order_by('-date'))
+    rows = list(OTAuthorization.objects.select_related('employee', 'approved_by')
+                .filter(employee__is_active=True).order_by('-date'))
     ot_by_key = {(o.employee_id, o.date): o.minutes for o in Overtime.objects.all()}
     for auth in rows:
         auth.computed_minutes = ot_by_key.get((auth.employee_id, auth.date))

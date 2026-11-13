@@ -10,7 +10,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.attendance.models import AttendanceLog, Lates, OTAuthorization, Undertime
+from apps.attendance.models import Absence, AttendanceLog, Lates, OTAuthorization, Undertime
 from apps.devices.models import BiometricDevice
 from apps.organization.models import Department, Employee, EmployeeSchedule, GlobalSchedule
 from apps.reports.models import ReportJob
@@ -511,6 +511,70 @@ class OnScreenClockTests(TestCase):
         resp = self.client.get(reverse('webportal:live'))
         self.assertContains(resp, f'SERVER_MS = {self._expected_ms(moment)}')
         self.assertNotContains(resp, 'var n = new Date(), h')
+
+class DeactivatedEmployeeTotalsTests(TestCase):
+    """A deactivated employee keeps their records, but stops counting in every
+    total: dashboard, lost-time charts, Lates/Absences pages and reports."""
+
+    @classmethod
+    def setUpTestData(cls):
+        GlobalSchedule.load()
+        dept = Department.objects.create(name='IT', code='IT')
+        cls.active = Employee.objects.create(
+            employee_no='A-1', first_name='Still', last_name='Here',
+            department=dept, biometric_id='9101', is_fulltime=True)
+        cls.gone = Employee.objects.create(
+            employee_no='A-2', first_name='Already', last_name='Gone',
+            department=dept, biometric_id='9102', is_fulltime=True, is_active=False)
+        today = timezone.localdate()
+        for emp, late in ((cls.active, 10), (cls.gone, 30)):
+            log = AttendanceLog.objects.create(
+                employee=emp, log_type='AM_IN',
+                log_datetime=timezone.make_aware(datetime.combine(today, time(8, 0))))
+            Lates.objects.create(employee=emp, date=today, session='AM',
+                                 attendance_log=log, minutes_late=late)
+        Undertime.objects.create(employee=cls.gone, date=today, session='PM',
+                                 attendance_log=log, minutes_undertime=20)
+        Absence.objects.create(employee=cls.gone, date=today, session='PM',
+                               minutes_absent=240)
+        cls.admin = User.objects.create(username='admin_deact', role=User.Roles.ADMIN,
+                                        is_staff=True, is_superuser=True)
+        cls.admin.set_password(PASSWORD)
+        cls.admin.save()
+
+    def setUp(self):
+        self.client.login(username='admin_deact', password=PASSWORD)
+
+    def test_dashboard_counts_only_active_employees(self):
+        ctx = self.client.get(reverse('webportal:dashboard')).context
+        self.assertEqual(ctx['total_employees'], 1)
+        self.assertEqual(ctx['present'], 1)
+        self.assertEqual(ctx['late'], 1)
+        self.assertEqual(ctx['absent'], 0)
+        self.assertEqual([t['employee'] for t in ctx['top_lost']], [self.active])
+        self.assertEqual(sum(d['total'] for d in ctx['dept_lost']), 10)
+
+    def test_lates_page_totals_skip_deactivated(self):
+        ctx = self.client.get(reverse('webportal:lates')).context
+        self.assertEqual(ctx['totals'], {'late': 10, 'under': 0, 'absent': 0, 'lost': 10})
+        self.assertEqual({r.employee for r in ctx['rows']}, {self.active})
+
+    def test_absences_page_skips_deactivated(self):
+        ctx = self.client.get(reverse('webportal:absences')).context
+        self.assertEqual(list(ctx['rows']), [])
+
+    def test_reports_skip_deactivated_unless_named(self):
+        from apps.reports.generators import _absence, _tardiness
+        self.assertEqual([r[1] for r in _tardiness({})['rows']], ['A-1'])
+        self.assertEqual(_absence({})['rows'], [])
+        # Asking for that one employee by name still gives their history.
+        self.assertEqual([r[1] for r in _tardiness({'employee': self.gone.id})['rows']], ['A-2'])
+
+    def test_reactivating_brings_their_records_back(self):
+        self.gone.is_active = True
+        self.gone.save()
+        ctx = self.client.get(reverse('webportal:dashboard')).context
+        self.assertEqual((ctx['late'], ctx['absent']), (2, 1))
 
 class DeviceCardStatusTests(TestCase):
     """Each card on the Devices page shows whether THAT device is reachable,

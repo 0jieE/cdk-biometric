@@ -268,9 +268,11 @@ def _tardiness(params) -> dict:
     qs = Lates.objects.filter(date__gte=start, date__lte=end).select_related(
         'employee', 'employee__department').order_by('date', 'employee__employee_no')
     if emp_id:
-        qs = qs.filter(employee_id=emp_id)
-    elif dept_id:
-        qs = qs.filter(employee__department_id=dept_id)
+        qs = qs.filter(employee_id=emp_id)    # one named employee: even if deactivated
+    else:
+        qs = qs.filter(employee__is_active=True)
+        if dept_id:
+            qs = qs.filter(employee__department_id=dept_id)
 
     columns = ['Date', 'Employee No', 'Name', 'Department', 'Session', 'Minutes Late']
     rows = [
@@ -295,9 +297,11 @@ def _absence(params) -> dict:
     qs = Absence.objects.filter(date__gte=start, date__lte=end).select_related(
         'employee', 'employee__department').order_by('date', 'employee__employee_no')
     if emp_id:
-        qs = qs.filter(employee_id=emp_id)
-    elif dept_id:
-        qs = qs.filter(employee__department_id=dept_id)
+        qs = qs.filter(employee_id=emp_id)    # one named employee: even if deactivated
+    else:
+        qs = qs.filter(employee__is_active=True)
+        if dept_id:
+            qs = qs.filter(employee__department_id=dept_id)
 
     columns = ['Date', 'Employee No', 'Name', 'Department', 'Session', 'Reason', 'Incomplete',
                'Minutes Absent']

@@ -82,8 +82,11 @@ class Command(BaseCommand):
             dept_by_code[d['code']] = obj
             created['departments'] += int(was_created)
 
-        # Employees + users (+ Saturday override where flagged)
-        for e in EMPLOYEES:
+        # Employees + users (+ Saturday override where flagged) - first boot only.
+        # This runs on every start; re-creating them would bring back an
+        # employee the admin deleted.
+        seed_employees = EMPLOYEES if not Employee.objects.exists() else []
+        for e in seed_employees:
             emp, emp_created = Employee.objects.get_or_create(
                 employee_no=e['no'],
                 defaults={

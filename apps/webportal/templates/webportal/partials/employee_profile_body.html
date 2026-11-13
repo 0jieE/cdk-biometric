@@ -76,9 +76,15 @@
           <div class="mini-bar"><span style="width:{{ attendance_rate }}%"></span></div>
         </div>
         <div class="mini-stat">
+          {% if punctuality_rate is None %}
+          <div class="mini-num text-muted" title="No days attended in this period">&mdash;</div>
+          <div class="mini-label">Punctuality · no days attended</div>
+          <div class="mini-bar"><span class="ok" style="width:0%"></span></div>
+          {% else %}
           <div class="mini-num">{{ punctuality_rate }}%</div>
           <div class="mini-label">Punctuality</div>
           <div class="mini-bar"><span class="ok" style="width:{{ punctuality_rate }}%"></span></div>
+          {% endif %}
         </div>
         <div class="mini-stat">
           <div class="mini-num text-ok">{{ present_days }}</div>
